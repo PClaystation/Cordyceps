@@ -71,6 +71,7 @@ Notes:
    - `WS_AUTH_TIMEOUT_MS`
    - `WS_PING_INTERVAL_MS`
    - `WS_MAX_MESSAGE_BYTES`
+   - `CORS_ALLOWED_ORIGINS` (comma-separated, use `*` or explicit origins)
 5. Install and run:
 
 ```bash
@@ -124,6 +125,7 @@ Open this URL on iPhone:
 Then:
 
 1. Paste your `PHONE_API_TOKEN` in the app and tap `Save`
+   - Set `API base URL` to your server origin (for same-host deployment this auto-fills)
 2. Tap `Load Devices` to verify connectivity
 3. Build/send commands directly from the app
 4. Optional: Share -> `Add to Home Screen` for app-like launch
@@ -132,6 +134,20 @@ Notes:
 
 - Do not use `:8080` with HTTPS in the browser/PWA URL
 - The token is stored in browser local storage on that device
+
+### GitHub Pages Client
+
+GitHub Pages can host the client only (not your Node server/agent).
+
+1. Host the contents of `server/public/` on Pages
+   - Included workflow: `.github/workflows/deploy-pages.yml`
+   - In GitHub repo settings, set Pages source to `GitHub Actions`
+2. In the client, set `API base URL` to `https://mpmc.ddns.net`
+3. On the server, set:
+   - `CORS_ALLOWED_ORIGINS=https://<your-github-username>.github.io`
+   - For project pages this is still the same origin (no repo path in CORS origin)
+
+Detailed guide: [docs/github-pages.md](docs/github-pages.md)
 
 ## API Quick Test
 

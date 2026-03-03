@@ -33,6 +33,11 @@ const ASSETS: Record<string, AssetSpec> = {
     contentType: "text/html; charset=utf-8",
     cacheControl: "no-store",
   },
+  "/index.html": {
+    fileName: "index.html",
+    contentType: "text/html; charset=utf-8",
+    cacheControl: "no-store",
+  },
   "/app.css": {
     fileName: "app.css",
     contentType: "text/css; charset=utf-8",

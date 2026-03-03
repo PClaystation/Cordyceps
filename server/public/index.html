@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f172a" />
     <title>Jarvis Remote</title>
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" href="/app-icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/app.css" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./app-icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./app.css" />
   </head>
   <body>
     <main class="shell">
@@ -18,6 +18,8 @@
 
       <section class="panel">
         <h2>Connection</h2>
+        <label for="apiBaseInput">API base URL</label>
+        <input id="apiBaseInput" type="text" placeholder="https://mpmc.ddns.net" />
         <label for="tokenInput">Phone API token</label>
         <div class="row">
           <input id="tokenInput" type="password" autocomplete="off" placeholder="Paste PHONE_API_TOKEN" />
@@ -74,6 +76,6 @@
       </section>
     </main>
 
-    <script src="/app.js" defer></script>
+    <script src="./app.js" defer></script>
   </body>
 </html>

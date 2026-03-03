@@ -1,3 +1,4 @@
+import cors from "@fastify/cors";
 import fastify from "fastify";
 import { registerApiRoutes } from "./api/routes";
 import { registerPwaRoutes } from "./api/pwaRoutes";
@@ -7,6 +8,14 @@ import { DeviceRegistry } from "./realtime/deviceRegistry";
 import { registerRealtime } from "./realtime/realtimeServer";
 import { CommandRouter } from "./router/commandRouter";
 import { log } from "./utils/logger";
+
+function isOriginAllowed(origin: string, allowlist: string[]): boolean {
+  if (allowlist.includes("*")) {
+    return true;
+  }
+
+  return allowlist.includes(origin);
+}
 
 function registerProcessGuards(): void {
   process.on("unhandledRejection", (reason) => {
@@ -47,6 +56,20 @@ async function main(): Promise<void> {
       ok: false,
       message: "Internal server error",
     });
+  });
+
+  await server.register(cors, {
+    origin: (origin, cb) => {
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+
+      cb(null, isOriginAllowed(origin, config.corsAllowedOrigins));
+    },
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    maxAge: 86_400,
   });
 
   await registerPwaRoutes(server);
@@ -96,6 +119,7 @@ async function main(): Promise<void> {
     port: config.port,
     sqlite_path: config.sqlitePath,
     max_pending_commands: config.maxPendingCommands,
+    cors_allowed_origins: config.corsAllowedOrigins,
   });
 
   const shutdown = async (): Promise<void> => {

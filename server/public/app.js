@@ -1,3 +1,4 @@
+const apiBaseInput = document.getElementById("apiBaseInput");
 const tokenInput = document.getElementById("tokenInput");
 const saveTokenBtn = document.getElementById("saveTokenBtn");
 const loadDevicesBtn = document.getElementById("loadDevicesBtn");
@@ -15,9 +16,60 @@ const speechInfo = document.getElementById("speechInfo");
 
 const TOKEN_KEY = "jarvis_phone_api_token";
 const TARGET_KEY = "jarvis_last_target";
+const API_BASE_KEY = "jarvis_api_base_url";
 
 function nowRequestId() {
   return "web-" + Date.now() + "-" + Math.random().toString(16).slice(2, 8);
+}
+
+function normalizeBase(input) {
+  const value = (input || "").trim();
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return value.replace(/\/+$/, "");
+  }
+}
+
+function defaultApiBase() {
+  if (window.location.hostname.endsWith("github.io")) {
+    return "https://mpmc.ddns.net";
+  }
+
+  return window.location.origin;
+}
+
+function getApiBase() {
+  const stored = localStorage.getItem(API_BASE_KEY);
+  if (stored) {
+    return normalizeBase(stored);
+  }
+
+  return normalizeBase(defaultApiBase());
+}
+
+function setApiBase(value) {
+  const normalized = normalizeBase(value);
+  if (!normalized) {
+    localStorage.removeItem(API_BASE_KEY);
+    return;
+  }
+
+  localStorage.setItem(API_BASE_KEY, normalized);
+}
+
+function apiUrl(path) {
+  const base = normalizeBase(apiBaseInput.value || getApiBase());
+  if (!base) {
+    return path;
+  }
+
+  return `${base}${path}`;
 }
 
 function getToken() {
@@ -54,7 +106,7 @@ async function apiRequest(path, payload) {
     throw new Error("Set your API token first.");
   }
 
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -85,7 +137,7 @@ async function loadDevices() {
     throw new Error("Set your API token first.");
   }
 
-  const response = await fetch("/api/devices", {
+  const response = await fetch(apiUrl("/api/devices"), {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -163,6 +215,7 @@ function setupSpeech() {
 }
 
 function init() {
+  apiBaseInput.value = getApiBase();
   tokenInput.value = getToken();
 
   const lastTarget = localStorage.getItem(TARGET_KEY);
@@ -194,13 +247,17 @@ function init() {
 
   saveTokenBtn.addEventListener("click", () => {
     const token = tokenInput.value.trim();
+    const apiBase = apiBaseInput.value.trim();
+
     if (!token) {
       setResult("Token is empty.");
       return;
     }
 
     setToken(token);
-    setResult("Token saved on this device.");
+    setApiBase(apiBase);
+    apiBaseInput.value = getApiBase();
+    setResult("Connection settings saved on this device.");
   });
 
   loadDevicesBtn.addEventListener("click", async () => {
@@ -228,7 +285,7 @@ function init() {
   setupSpeech();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js").catch(() => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
       // Ignore service worker errors.
     });
   }

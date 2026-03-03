@@ -14,6 +14,14 @@ function readInt(name: string, fallback: number): number {
   return parsed;
 }
 
+function readCsv(name: string, fallback: string): string[] {
+  const raw = process.env[name] ?? fallback;
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
 export interface AppConfig {
   host: string;
   port: number;
@@ -26,6 +34,7 @@ export interface AppConfig {
   wsAuthTimeoutMs: number;
   wsPingIntervalMs: number;
   wsMaxMessageBytes: number;
+  corsAllowedOrigins: string[];
   publicWsUrl: string;
 }
 
@@ -41,6 +50,7 @@ export function loadConfig(): AppConfig {
   const wsAuthTimeoutMs = readInt("WS_AUTH_TIMEOUT_MS", 10000);
   const wsPingIntervalMs = readInt("WS_PING_INTERVAL_MS", 30000);
   const wsMaxMessageBytes = readInt("WS_MAX_MESSAGE_BYTES", 65536);
+  const corsAllowedOrigins = readCsv("CORS_ALLOWED_ORIGINS", "*");
   const publicWsUrl = process.env.PUBLIC_WS_URL ?? `ws://localhost:${port}/ws/agent`;
 
   return {
@@ -55,6 +65,7 @@ export function loadConfig(): AppConfig {
     wsAuthTimeoutMs,
     wsPingIntervalMs,
     wsMaxMessageBytes,
+    corsAllowedOrigins,
     publicWsUrl,
   };
 }

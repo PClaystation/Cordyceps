@@ -1,5 +1,9 @@
-const CACHE_NAME = "jarvis-pwa-v1";
-const ASSETS = ["/app", "/app.css", "/app.js", "/manifest.webmanifest", "/app-icon.svg"];
+const CACHE_NAME = "jarvis-pwa-v2";
+const BASE_URL = new URL(self.registration.scope);
+const START_URL = new URL("./", BASE_URL).toString();
+const ASSETS = ["./", "./index.html", "./app.css", "./app.js", "./manifest.webmanifest", "./app-icon.svg"].map(
+  (asset) => new URL(asset, BASE_URL).toString(),
+);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
@@ -16,17 +20,17 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-
   if (event.request.method !== "GET") {
     return;
   }
+
+  const url = new URL(event.request.url);
 
   if (url.origin !== self.location.origin) {
     return;
   }
 
-  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/ws/")) {
+  if (url.pathname.includes("/api/") || url.pathname.includes("/ws/")) {
     return;
   }
 
@@ -45,7 +49,7 @@ self.addEventListener("fetch", (event) => {
 
           return response;
         })
-        .catch(() => caches.match("/app"));
+        .catch(() => caches.match(START_URL));
     }),
   );
 });
