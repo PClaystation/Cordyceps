@@ -1,0 +1,19 @@
+# Node
+node_modules/
+server/node_modules/
+server/dist/
+
+# Env and local data
+.env
+*.env
+server/.env
+server/data/
+
+# Go
+agent/bin/
+agent/*.exe
+
+# Editor/OS
+.DS_Store
+.vscode/
+.idea/
