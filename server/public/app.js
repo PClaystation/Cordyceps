@@ -72,6 +72,32 @@ function apiUrl(path) {
   return `${base}${path}`;
 }
 
+function applyBootstrapLink() {
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const query = new URLSearchParams(window.location.search);
+
+  const token = hash.get("token") || query.get("token");
+  const api = hash.get("api") || query.get("api");
+
+  let applied = false;
+
+  if (api) {
+    setApiBase(api);
+    applied = true;
+  }
+
+  if (token) {
+    setToken(token);
+    applied = true;
+  }
+
+  if (applied) {
+    const cleanPath = window.location.pathname;
+    window.history.replaceState({}, document.title, cleanPath);
+    setResult("Connection configured from pairing link.");
+  }
+}
+
 function getToken() {
   return localStorage.getItem(TOKEN_KEY) || "";
 }
@@ -215,6 +241,7 @@ function setupSpeech() {
 }
 
 function init() {
+  applyBootstrapLink();
   apiBaseInput.value = getApiBase();
   tokenInput.value = getToken();
 
@@ -288,6 +315,18 @@ function init() {
     navigator.serviceWorker.register("sw.js").catch(() => {
       // Ignore service worker errors.
     });
+  }
+
+  if (getToken()) {
+    loadDevices()
+      .then(() => {
+        if (!resultBox.textContent || resultBox.textContent === "No request yet.") {
+          setResult("Devices loaded.");
+        }
+      })
+      .catch((error) => {
+        setResult(error instanceof Error ? error.message : String(error));
+      });
   }
 }
 

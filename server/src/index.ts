@@ -9,12 +9,84 @@ import { registerRealtime } from "./realtime/realtimeServer";
 import { CommandRouter } from "./router/commandRouter";
 import { log } from "./utils/logger";
 
-function isOriginAllowed(origin: string, allowlist: string[]): boolean {
-  if (allowlist.includes("*")) {
-    return true;
+function normalizeOrigin(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
   }
 
-  return allowlist.includes(origin);
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.origin.toLowerCase();
+  } catch {
+    return trimmed.replace(/\/+$/, "").toLowerCase();
+  }
+}
+
+function matchesWildcard(origin: string, pattern: string): boolean {
+  const normalizedPattern = normalizeOrigin(pattern);
+
+  if (!normalizedPattern.includes("*")) {
+    return origin === normalizedPattern;
+  }
+
+  // Supports patterns like "https://*.github.io".
+  const [prefix, suffix] = normalizedPattern.split("*");
+  return origin.startsWith(prefix ?? "") && origin.endsWith(suffix ?? "");
+}
+
+function derivePublicHttpOrigin(publicWsUrl: string): string | null {
+  try {
+    const parsed = new URL(publicWsUrl);
+    if (parsed.protocol === "wss:") {
+      parsed.protocol = "https:";
+    } else if (parsed.protocol === "ws:") {
+      parsed.protocol = "http:";
+    } else if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return null;
+    }
+
+    parsed.pathname = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function normalizePublicUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function isOriginAllowed(origin: string, allowlist: string[]): boolean {
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (!normalizedOrigin) {
+    return false;
+  }
+
+  return allowlist.some((allowed) => {
+    const candidate = allowed.trim();
+    if (!candidate) {
+      return false;
+    }
+
+    if (candidate === "*") {
+      return true;
+    }
+
+    return matchesWildcard(normalizedOrigin, candidate);
+  });
 }
 
 function registerProcessGuards(): void {
@@ -118,9 +190,35 @@ async function main(): Promise<void> {
     host: config.host,
     port: config.port,
     sqlite_path: config.sqlitePath,
+    secrets_path: config.secretsPath,
     max_pending_commands: config.maxPendingCommands,
     cors_allowed_origins: config.corsAllowedOrigins,
+    phone_token_source: config.phoneApiTokenSource,
+    bootstrap_token_source: config.agentBootstrapTokenSource,
   });
+
+  const publicOrigin = derivePublicHttpOrigin(config.publicWsUrl);
+  const pwaPublicUrl = normalizePublicUrl(config.pwaPublicUrl);
+  if (publicOrigin) {
+    const pwaUrl = `${publicOrigin}/app`;
+    const pairingUrl = `${pwaUrl}#api=${encodeURIComponent(publicOrigin)}&token=${encodeURIComponent(config.phoneApiToken)}`;
+
+    log("info", "Quick start links", {
+      pwa_url: pwaUrl,
+      pwa_pairing_url: pairingUrl,
+      external_pwa_url: pwaPublicUrl,
+      external_pwa_pairing_url: pwaPublicUrl
+        ? `${pwaPublicUrl}#api=${encodeURIComponent(publicOrigin)}&token=${encodeURIComponent(config.phoneApiToken)}`
+        : null,
+    });
+  }
+
+  if (config.phoneApiTokenSource === "generated" || config.agentBootstrapTokenSource === "generated") {
+    log("warn", "Generated tokens were used (auto-persisted)", {
+      phone_api_token: config.phoneApiToken,
+      agent_bootstrap_token: config.agentBootstrapToken,
+    });
+  }
 
   const shutdown = async (): Promise<void> => {
     clearInterval(heartbeatSweepTimer);

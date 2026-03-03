@@ -6,7 +6,8 @@
     <title>Jarvis Redirect</title>
     <meta http-equiv="refresh" content="0; url=./server/public/index.html" />
     <script>
-      window.location.replace("./server/public/index.html");
+      const target = "./server/public/index.html" + window.location.search + window.location.hash;
+      window.location.replace(target);
     </script>
   </head>
   <body>

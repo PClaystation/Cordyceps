@@ -4,13 +4,12 @@ GitHub Pages can host only the client UI. The Jarvis server and agent still run 
 
 ## 1. Server-side CORS
 
-Set this on your server before restart:
+Default build already allows:
 
-```bash
-export CORS_ALLOWED_ORIGINS="https://<your-github-username>.github.io"
-```
+- `https://pclaystation.github.io`
+- `https://mpmc.ddns.net`
 
-If you use a custom Pages domain, use that domain origin instead.
+Only set `CORS_ALLOWED_ORIGINS` if you use different domains.
 
 ## 2. Deploy PWA to Pages
 
@@ -35,6 +34,10 @@ Inside the app:
 - Set `API base URL` to your server origin, for example `https://mpmc.ddns.net`
 - Paste `PHONE_API_TOKEN`
 - Tap `Load Devices`
+
+Tip:
+
+- Run `npm run show-config` on the server and use `external_pwa_pairing_url` once. It auto-fills API base and token.
 
 ## 4. Install as app
 

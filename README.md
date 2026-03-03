@@ -62,22 +62,44 @@ Notes:
 1. Install Node.js 20+
 2. Create env file:
    - `cp server/.env.example server/.env`
-3. Set required secrets in `server/.env`:
-   - `PHONE_API_TOKEN`
-   - `AGENT_BOOTSTRAP_TOKEN`
+3. Optional: set values in `server/.env`:
    - `PUBLIC_WS_URL` (use `wss://...` behind TLS)
+   - `PHONE_API_TOKEN` and `AGENT_BOOTSTRAP_TOKEN` (if omitted, they are auto-generated and persisted)
 4. Optional hardening knobs:
    - `MAX_PENDING_COMMANDS`
    - `WS_AUTH_TIMEOUT_MS`
    - `WS_PING_INTERVAL_MS`
    - `WS_MAX_MESSAGE_BYTES`
-   - `CORS_ALLOWED_ORIGINS` (comma-separated, use `*` or explicit origins)
+   - `CORS_ALLOWED_ORIGINS` (comma-separated explicit origins; defaults already include `https://pclaystation.github.io` and `https://mpmc.ddns.net`)
 5. Install and run:
 
 ```bash
 cd server
 npm install
 npm run dev
+```
+
+Or one command:
+
+```bash
+cd server
+./run.sh
+```
+
+Windows PowerShell equivalent: `./run.ps1`
+
+On first start, the server now auto-generates tokens if missing and saves them to `server/data/secrets.json`.
+It also logs:
+
+- `pwa_url`
+- `pwa_pairing_url` (open once on iPhone to auto-fill token + API)
+- `external_pwa_pairing_url` (GitHub Pages pairing link)
+
+Show current effective config anytime:
+
+```bash
+cd server
+npm run show-config
 ```
 
 Production:
@@ -124,11 +146,12 @@ Open this URL on iPhone:
 
 Then:
 
-1. Paste your `PHONE_API_TOKEN` in the app and tap `Save`
+1. Preferred: open the `pwa_pairing_url` printed by server logs (auto-fills token + API)
+2. Or paste your `PHONE_API_TOKEN` in the app and tap `Save`
    - Set `API base URL` to your server origin (for same-host deployment this auto-fills)
-2. Tap `Load Devices` to verify connectivity
-3. Build/send commands directly from the app
-4. Optional: Share -> `Add to Home Screen` for app-like launch
+3. Tap `Load Devices` to verify connectivity
+4. Build/send commands directly from the app
+5. Optional: Share -> `Add to Home Screen` for app-like launch
 
 Notes:
 
@@ -143,9 +166,9 @@ GitHub Pages can host the client only (not your Node server/agent).
    - Included workflow: `.github/workflows/deploy-pages.yml`
    - In GitHub repo settings, set Pages source to `GitHub Actions`
 2. In the client, set `API base URL` to `https://mpmc.ddns.net`
-3. On the server, set:
-   - `CORS_ALLOWED_ORIGINS=https://<your-github-username>.github.io`
-   - For project pages this is still the same origin (no repo path in CORS origin)
+3. Server CORS:
+   - Defaults already include `https://pclaystation.github.io` and `https://mpmc.ddns.net`
+   - If you change domains later, set `CORS_ALLOWED_ORIGINS` accordingly
 
 Detailed guide: [docs/github-pages.md](docs/github-pages.md)
 
