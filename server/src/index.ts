@@ -1,4 +1,3 @@
-import cors from "@fastify/cors";
 import fastify from "fastify";
 import { registerApiRoutes } from "./api/routes";
 import { registerPwaRoutes } from "./api/pwaRoutes";
@@ -89,6 +88,19 @@ function isOriginAllowed(origin: string, allowlist: string[]): boolean {
   });
 }
 
+function applyCorsHeaders(origin: string, allowlist: string[], reply: { header: (name: string, value: string) => void }): boolean {
+  if (!isOriginAllowed(origin, allowlist)) {
+    return false;
+  }
+
+  reply.header("Access-Control-Allow-Origin", origin);
+  reply.header("Vary", "Origin");
+  reply.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  reply.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  reply.header("Access-Control-Max-Age", "86400");
+  return true;
+}
+
 function registerProcessGuards(): void {
   process.on("unhandledRejection", (reason) => {
     log("error", "Unhandled rejection", {
@@ -130,18 +142,23 @@ async function main(): Promise<void> {
     });
   });
 
-  await server.register(cors, {
-    origin: (origin, cb) => {
-      if (!origin) {
-        cb(null, true);
-        return;
-      }
+  server.addHook("onRequest", async (request, reply) => {
+    const originHeader = request.headers.origin;
+    const origin = typeof originHeader === "string" ? originHeader : "";
 
-      cb(null, isOriginAllowed(origin, config.corsAllowedOrigins));
-    },
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    maxAge: 86_400,
+    if (!origin) {
+      return;
+    }
+
+    const allowed = applyCorsHeaders(origin, config.corsAllowedOrigins, reply);
+    if (!allowed) {
+      reply.code(403).send({ ok: false, message: "Origin not allowed" });
+      return;
+    }
+
+    if (request.method === "OPTIONS") {
+      reply.code(204).send();
+    }
   });
 
   await registerPwaRoutes(server);

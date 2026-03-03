@@ -88,6 +88,8 @@ cd server
 
 Windows PowerShell equivalent: `./run.ps1`
 
+Both scripts auto-run `npm install` when dependencies changed.
+
 On first start, the server now auto-generates tokens if missing and saves them to `server/data/secrets.json`.
 It also logs:
 
