@@ -28,11 +28,37 @@ function normalizeBase(input) {
     return "";
   }
 
+  const wsMapped = value.replace(/^wss?:\/\//i, (scheme) => (scheme.toLowerCase() === "wss://" ? "https://" : "http://"));
+  const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(wsMapped);
+  const candidate = hasScheme ? wsMapped : `${window.location.protocol === "https:" ? "https://" : "http://"}${wsMapped}`;
+
   try {
-    const url = new URL(value);
+    const url = new URL(candidate);
     return `${url.protocol}//${url.host}`;
   } catch {
-    return value.replace(/\/+$/, "");
+    return wsMapped.replace(/\/+$/, "");
+  }
+}
+
+function coerceApiBaseForContext(input) {
+  const normalized = normalizeBase(input);
+  if (!normalized) {
+    return "";
+  }
+
+  try {
+    const url = new URL(normalized);
+
+    if (window.location.protocol === "https:" && url.protocol === "http:") {
+      url.protocol = "https:";
+      if (url.port === "80" || url.port === "8080") {
+        url.port = "";
+      }
+    }
+
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return normalized;
   }
 }
 
@@ -46,15 +72,25 @@ function defaultApiBase() {
 
 function getApiBase() {
   const stored = localStorage.getItem(API_BASE_KEY);
+  let resolved;
+
   if (stored) {
-    return normalizeBase(stored);
+    resolved = coerceApiBaseForContext(stored);
+    if (resolved && resolved !== stored) {
+      localStorage.setItem(API_BASE_KEY, resolved);
+    }
+    return resolved;
   }
 
-  return normalizeBase(defaultApiBase());
+  resolved = coerceApiBaseForContext(defaultApiBase());
+  if (resolved) {
+    localStorage.setItem(API_BASE_KEY, resolved);
+  }
+  return resolved;
 }
 
 function setApiBase(value) {
-  const normalized = normalizeBase(value);
+  const normalized = coerceApiBaseForContext(value);
   if (!normalized) {
     localStorage.removeItem(API_BASE_KEY);
     return;
@@ -64,7 +100,7 @@ function setApiBase(value) {
 }
 
 function apiUrl(path) {
-  const base = normalizeBase(apiBaseInput.value || getApiBase());
+  const base = coerceApiBaseForContext(apiBaseInput.value || getApiBase());
   if (!base) {
     return path;
   }
@@ -132,7 +168,12 @@ async function apiRequest(path, payload) {
     throw new Error("Set your API token first.");
   }
 
-  const response = await fetch(apiUrl(path), {
+  const endpoint = apiUrl(path);
+  if (window.location.protocol === "https:" && endpoint.startsWith("http://")) {
+    throw new Error("Mixed content blocked. Set API base URL to https://mpmc.ddns.net.");
+  }
+
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -163,7 +204,12 @@ async function loadDevices() {
     throw new Error("Set your API token first.");
   }
 
-  const response = await fetch(apiUrl("/api/devices"), {
+  const endpoint = apiUrl("/api/devices");
+  if (window.location.protocol === "https:" && endpoint.startsWith("http://")) {
+    throw new Error("Mixed content blocked. Set API base URL to https://mpmc.ddns.net.");
+  }
+
+  const response = await fetch(endpoint, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -243,6 +289,8 @@ function setupSpeech() {
 function init() {
   applyBootstrapLink();
   apiBaseInput.value = getApiBase();
+  setApiBase(apiBaseInput.value);
+  apiBaseInput.value = getApiBase();
   tokenInput.value = getToken();
 
   const lastTarget = localStorage.getItem(TARGET_KEY);
@@ -312,9 +360,16 @@ function init() {
   setupSpeech();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js").catch(() => {
-      // Ignore service worker errors.
-    });
+    navigator.serviceWorker
+      .register("sw.js", { updateViaCache: "none" })
+      .then((registration) => {
+        registration.update().catch(() => {
+          // Ignore update errors.
+        });
+      })
+      .catch(() => {
+        // Ignore service worker errors.
+      });
   }
 
   if (getToken()) {

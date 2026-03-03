@@ -54,6 +54,33 @@ function derivePublicHttpOrigin(publicWsUrl: string): string | null {
   }
 }
 
+function derivePwaApiOrigin(publicWsUrl: string, pwaPublicUrl: string | null): string | null {
+  const origin = derivePublicHttpOrigin(publicWsUrl);
+  if (!origin) {
+    return null;
+  }
+
+  if (!pwaPublicUrl) {
+    return origin;
+  }
+
+  try {
+    const pwa = new URL(pwaPublicUrl);
+    const api = new URL(origin);
+
+    if (pwa.protocol === "https:" && api.protocol === "http:") {
+      api.protocol = "https:";
+      if (api.port === "80" || api.port === "8080") {
+        api.port = "";
+      }
+    }
+
+    return api.toString().replace(/\/$/, "");
+  } catch {
+    return origin;
+  }
+}
+
 function normalizePublicUrl(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -214,20 +241,28 @@ async function main(): Promise<void> {
     bootstrap_token_source: config.agentBootstrapTokenSource,
   });
 
-  const publicOrigin = derivePublicHttpOrigin(config.publicWsUrl);
   const pwaPublicUrl = normalizePublicUrl(config.pwaPublicUrl);
-  if (publicOrigin) {
+  const publicOrigin = derivePublicHttpOrigin(config.publicWsUrl);
+  const pwaApiOrigin = derivePwaApiOrigin(config.publicWsUrl, pwaPublicUrl);
+  if (publicOrigin && pwaApiOrigin) {
     const pwaUrl = `${publicOrigin}/app`;
-    const pairingUrl = `${pwaUrl}#api=${encodeURIComponent(publicOrigin)}&token=${encodeURIComponent(config.phoneApiToken)}`;
+    const pairingUrl = `${pwaUrl}#api=${encodeURIComponent(pwaApiOrigin)}&token=${encodeURIComponent(config.phoneApiToken)}`;
 
     log("info", "Quick start links", {
       pwa_url: pwaUrl,
       pwa_pairing_url: pairingUrl,
       external_pwa_url: pwaPublicUrl,
       external_pwa_pairing_url: pwaPublicUrl
-        ? `${pwaPublicUrl}#api=${encodeURIComponent(publicOrigin)}&token=${encodeURIComponent(config.phoneApiToken)}`
+        ? `${pwaPublicUrl}#api=${encodeURIComponent(pwaApiOrigin)}&token=${encodeURIComponent(config.phoneApiToken)}`
         : null,
     });
+
+    if (publicOrigin !== pwaApiOrigin) {
+      log("warn", "Adjusted API origin for HTTPS PWA pairing links", {
+        public_origin: publicOrigin,
+        pwa_api_origin: pwaApiOrigin,
+      });
+    }
   }
 
   if (config.phoneApiTokenSource === "generated" || config.agentBootstrapTokenSource === "generated") {
