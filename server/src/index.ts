@@ -1,5 +1,6 @@
 import fastify from "fastify";
 import { registerApiRoutes } from "./api/routes";
+import { registerPwaRoutes } from "./api/pwaRoutes";
 import { loadConfig } from "./config/env";
 import { Database } from "./db/database";
 import { DeviceRegistry } from "./realtime/deviceRegistry";
@@ -47,6 +48,8 @@ async function main(): Promise<void> {
       message: "Internal server error",
     });
   });
+
+  await registerPwaRoutes(server);
 
   await registerApiRoutes(server, {
     config,

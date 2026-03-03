@@ -1,0 +1,16 @@
+{
+  "name": "Jarvis Remote",
+  "short_name": "Jarvis",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#e2e8f0",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

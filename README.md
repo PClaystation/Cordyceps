@@ -3,6 +3,7 @@
 Phone-driven remote command system:
 
 - iPhone Shortcut captures speech as text and sends it to server
+- Built-in PWA client (`/app`) for iPhone/home-screen use
 - Server parses and routes strict typed commands
 - Windows agent receives typed command envelopes over outbound WSS
 - Agent executes allowlisted actions only
@@ -13,6 +14,7 @@ Phone-driven remote command system:
 - `GET /api/health`
 - `POST /api/enroll` for first-run device enrollment
 - `GET /api/devices` (phone-authenticated)
+- PWA routes: `/app`, `/app.js`, `/app.css`, `/manifest.webmanifest`, `/sw.js`
 - Agent WebSocket auth handshake + heartbeat
 - Presence tracking (`online`/`offline` + `last_seen`)
 - Request/response correlation with command timeout
@@ -112,6 +114,24 @@ Default config path on Windows:
 ## iPhone Shortcut
 
 See [docs/iphone-shortcut.md](docs/iphone-shortcut.md).
+
+## PWA Client (Recommended)
+
+Open this URL on iPhone:
+
+- `https://mpmc.ddns.net/app`
+
+Then:
+
+1. Paste your `PHONE_API_TOKEN` in the app and tap `Save`
+2. Tap `Load Devices` to verify connectivity
+3. Build/send commands directly from the app
+4. Optional: Share -> `Add to Home Screen` for app-like launch
+
+Notes:
+
+- Do not use `:8080` with HTTPS in the browser/PWA URL
+- The token is stored in browser local storage on that device
 
 ## API Quick Test
 

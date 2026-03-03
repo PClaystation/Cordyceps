@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>Jarvis Remote</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/app-icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="panel">
+        <h1>Jarvis Remote</h1>
+        <p>Reliable command client for iPhone and desktop browsers.</p>
+      </header>
+
+      <section class="panel">
+        <h2>Connection</h2>
+        <label for="tokenInput">Phone API token</label>
+        <div class="row">
+          <input id="tokenInput" type="password" autocomplete="off" placeholder="Paste PHONE_API_TOKEN" />
+          <button id="saveTokenBtn" type="button">Save</button>
+        </div>
+        <div class="row">
+          <button id="loadDevicesBtn" type="button">Load Devices</button>
+          <span id="deviceSummary" class="muted">No data yet</span>
+        </div>
+        <ul id="deviceList" class="list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Command</h2>
+        <div class="grid">
+          <div>
+            <label for="targetInput">Target</label>
+            <input id="targetInput" type="text" value="m1" />
+          </div>
+          <div>
+            <label for="actionSelect">Action</label>
+            <select id="actionSelect">
+              <option value="ping">ping</option>
+              <option value="open spotify">open spotify</option>
+              <option value="open discord">open discord</option>
+              <option value="open chrome">open chrome</option>
+              <option value="play">play</option>
+              <option value="pause">pause</option>
+              <option value="next">next</option>
+              <option value="previous">previous</option>
+              <option value="volume up">volume up</option>
+              <option value="volume down">volume down</option>
+              <option value="mute">mute</option>
+              <option value="lock">lock</option>
+              <option value="notify">notify</option>
+            </select>
+          </div>
+        </div>
+        <label for="argInput">Argument (for notify)</label>
+        <input id="argInput" type="text" placeholder="hello" />
+        <div class="row">
+          <button id="composeBtn" type="button">Build Command</button>
+          <button id="speakBtn" type="button">Speak</button>
+          <button id="sendBtn" type="button" class="primary">Send</button>
+        </div>
+        <label for="commandText">Command text</label>
+        <textarea id="commandText" rows="3" placeholder="m1 ping"></textarea>
+        <p id="speechInfo" class="muted">Speech: checking support...</p>
+      </section>
+
+      <section class="panel">
+        <h2>Result</h2>
+        <pre id="resultBox" class="result">No request yet.</pre>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
