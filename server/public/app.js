@@ -11,6 +11,8 @@ const connectionBadge = document.getElementById("connectionBadge");
 const lastSuccessLabel = document.getElementById("lastSuccessLabel");
 const targetInput = document.getElementById("targetInput");
 const actionSelect = document.getElementById("actionSelect");
+const actionSearchInput = document.getElementById("actionSearchInput");
+const actionSearchInfo = document.getElementById("actionSearchInfo");
 const argInput = document.getElementById("argInput");
 const dangerZone = document.getElementById("dangerZone");
 const composeBtn = document.getElementById("composeBtn");
@@ -42,9 +44,110 @@ const LAST_COMMAND_SUCCESS_KEY = "jarvis_last_command_success";
 const BOOTSTRAP_COMMAND_KEY = "jarvis_bootstrap_command";
 const BOOTSTRAP_ACTION_KEY = "jarvis_bootstrap_action";
 const BOOTSTRAP_ARG_KEY = "jarvis_bootstrap_arg";
+const LAST_ACTION_KEY = "jarvis_last_action";
+const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 
 const POLL_INTERVAL_MS = 30000;
-const dangerousActions = new Set(["shutdown", "restart", "sleep"]);
+
+const COMMAND_LIBRARY = [
+  { value: "ping", label: "ping", category: "Connectivity", keywords: ["status", "health", "check"] },
+  { value: "status", label: "status", category: "Connectivity", keywords: ["ping", "health", "check"] },
+  { value: "play", label: "play", category: "Media", keywords: ["resume"] },
+  { value: "resume", label: "resume", category: "Media", keywords: ["play"] },
+  { value: "pause", label: "pause", category: "Media", keywords: ["stop"] },
+  { value: "play pause", label: "play pause", category: "Media", keywords: ["toggle"] },
+  { value: "toggle", label: "toggle", category: "Media", keywords: ["play", "pause"] },
+  { value: "next", label: "next", category: "Media", keywords: ["skip", "track", "repeat"] },
+  { value: "next track", label: "next track", category: "Media", keywords: ["skip", "next", "repeat"] },
+  { value: "skip", label: "skip", category: "Media", keywords: ["next", "track", "repeat"] },
+  { value: "skip track", label: "skip track", category: "Media", keywords: ["next", "skip", "repeat"] },
+  { value: "previous", label: "previous", category: "Media", keywords: ["back", "track", "repeat"] },
+  { value: "previous track", label: "previous track", category: "Media", keywords: ["back", "prev", "repeat"] },
+  { value: "prev", label: "prev", category: "Media", keywords: ["previous", "back", "repeat"] },
+  { value: "back", label: "back", category: "Media", keywords: ["previous", "track", "repeat"] },
+  { value: "volume up", label: "volume up", category: "Volume", keywords: ["louder", "vol up", "repeat"] },
+  { value: "vol up", label: "vol up", category: "Volume", keywords: ["volume up", "louder", "repeat"] },
+  { value: "louder", label: "louder", category: "Volume", keywords: ["volume up", "repeat"] },
+  { value: "volume higher", label: "volume higher", category: "Volume", keywords: ["volume up", "repeat"] },
+  { value: "volume down", label: "volume down", category: "Volume", keywords: ["quieter", "vol down", "repeat"] },
+  { value: "vol down", label: "vol down", category: "Volume", keywords: ["volume down", "quieter", "repeat"] },
+  { value: "quieter", label: "quieter", category: "Volume", keywords: ["volume down", "repeat"] },
+  { value: "volume lower", label: "volume lower", category: "Volume", keywords: ["volume down", "repeat"] },
+  { value: "mute", label: "mute", category: "Volume", keywords: ["mute volume", "silence"] },
+  { value: "mute volume", label: "mute volume", category: "Volume", keywords: ["mute", "silence"] },
+  { value: "open spotify", label: "open spotify", category: "Apps", keywords: ["launch spotify"] },
+  { value: "open discord", label: "open discord", category: "Apps", keywords: ["launch discord"] },
+  { value: "open chrome", label: "open chrome", category: "Apps", keywords: ["browser"] },
+  { value: "open steam", label: "open steam", category: "Apps", keywords: ["games"] },
+  { value: "open explorer", label: "open explorer", category: "Apps", keywords: ["files", "windows explorer"] },
+  { value: "open file explorer", label: "open file explorer", category: "Apps", keywords: ["explorer", "files"] },
+  { value: "open vscode", label: "open vscode", category: "Apps", keywords: ["editor", "code"] },
+  { value: "open vs code", label: "open vs code", category: "Apps", keywords: ["vscode", "editor"] },
+  { value: "open visual studio code", label: "open visual studio code", category: "Apps", keywords: ["vscode", "editor"] },
+  { value: "open edge", label: "open edge", category: "Apps", keywords: ["browser", "microsoft edge"] },
+  { value: "open microsoft edge", label: "open microsoft edge", category: "Apps", keywords: ["edge", "browser"] },
+  { value: "open firefox", label: "open firefox", category: "Apps", keywords: ["browser"] },
+  { value: "open notepad", label: "open notepad", category: "Apps", keywords: ["text"] },
+  { value: "open calculator", label: "open calculator", category: "Apps", keywords: ["calc"] },
+  { value: "open calc", label: "open calc", category: "Apps", keywords: ["calculator"] },
+  { value: "open settings", label: "open settings", category: "Apps", keywords: ["windows settings"] },
+  { value: "open slack", label: "open slack", category: "Apps", keywords: ["chat"] },
+  { value: "open teams", label: "open teams", category: "Apps", keywords: ["meeting", "chat"] },
+  { value: "open task manager", label: "open task manager", category: "Apps", keywords: ["taskmanager", "process"] },
+  { value: "open taskmanager", label: "open taskmanager", category: "Apps", keywords: ["task manager", "process"] },
+  { value: "open terminal", label: "open terminal", category: "Apps", keywords: ["windows terminal", "wt"] },
+  { value: "open windows terminal", label: "open windows terminal", category: "Apps", keywords: ["terminal", "wt"] },
+  { value: "open powershell", label: "open powershell", category: "Apps", keywords: ["shell"] },
+  { value: "open power shell", label: "open power shell", category: "Apps", keywords: ["powershell", "shell"] },
+  { value: "open cmd", label: "open cmd", category: "Apps", keywords: ["command prompt"] },
+  { value: "open command prompt", label: "open command prompt", category: "Apps", keywords: ["cmd"] },
+  { value: "open control panel", label: "open control panel", category: "Apps", keywords: ["controlpanel"] },
+  { value: "open paint", label: "open paint", category: "Apps", keywords: ["mspaint"] },
+  { value: "open mspaint", label: "open mspaint", category: "Apps", keywords: ["paint"] },
+  { value: "open snipping tool", label: "open snipping tool", category: "Apps", keywords: ["snippingtool", "screenshot"] },
+  { value: "lock", label: "lock", category: "Power", keywords: ["lock pc"] },
+  { value: "lock pc", label: "lock pc", category: "Power", keywords: ["lock"] },
+  { value: "sleep", label: "sleep", category: "Power", keywords: ["sleep pc"] },
+  { value: "sleep pc", label: "sleep pc", category: "Power", keywords: ["sleep"] },
+  { value: "shutdown", label: "shutdown", category: "Power", keywords: ["shut down", "shutdown pc"] },
+  { value: "shut down", label: "shut down", category: "Power", keywords: ["shutdown"] },
+  { value: "shutdown pc", label: "shutdown pc", category: "Power", keywords: ["shutdown"] },
+  { value: "restart", label: "restart", category: "Power", keywords: ["reboot", "restart pc"] },
+  { value: "reboot", label: "reboot", category: "Power", keywords: ["restart"] },
+  { value: "restart pc", label: "restart pc", category: "Power", keywords: ["restart"] },
+  { value: "notify", label: "notify (requires message)", category: "Messaging", keywords: ["alert", "notification"] },
+];
+
+const COMMAND_LIBRARY_INDEX = COMMAND_LIBRARY.map((entry) => {
+  const value = entry.value.trim().toLowerCase();
+  return {
+    value,
+    label: entry.label,
+    category: entry.category,
+    searchText: `${value} ${entry.label} ${entry.category} ${entry.keywords.join(" ")}`.toLowerCase(),
+  };
+});
+
+const KNOWN_ACTION_VALUES = new Set(COMMAND_LIBRARY_INDEX.map((entry) => entry.value));
+const REPEATABLE_ACTIONS = new Set([
+  "volume up",
+  "vol up",
+  "louder",
+  "volume higher",
+  "volume down",
+  "vol down",
+  "quieter",
+  "volume lower",
+  "next track",
+  "skip track",
+  "next",
+  "skip",
+  "previous track",
+  "previous",
+  "prev",
+  "back",
+]);
+const dangerousActions = new Set(["shutdown", "shut down", "shutdown pc", "restart", "reboot", "restart pc", "sleep", "sleep pc"]);
 
 let pollTimer = null;
 
@@ -251,6 +354,10 @@ function setToken(token) {
   localStorage.setItem(TOKEN_KEY, token);
 }
 
+function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
 function toLocalTimestamp(isoTime) {
   if (!isoTime) {
     return "never";
@@ -336,9 +443,81 @@ function setResult(payload, context = {}) {
   resultBox.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
 }
 
+function normalizeActionText(text) {
+  return (text || "")
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function filterCommandLibrary(query) {
+  const normalizedQuery = normalizeActionText(query);
+  if (!normalizedQuery) {
+    return COMMAND_LIBRARY_INDEX;
+  }
+
+  const terms = normalizedQuery.split(" ");
+  return COMMAND_LIBRARY_INDEX.filter((entry) => terms.every((term) => entry.searchText.includes(term)));
+}
+
+function renderActionOptions(query = "") {
+  const normalizedQuery = normalizeActionText(query);
+  const currentValue = normalizeActionText(actionSelect.value);
+  const filteredEntries = filterCommandLibrary(normalizedQuery);
+
+  if (filteredEntries.length === 0) {
+    if (actionSearchInfo) {
+      actionSearchInfo.textContent = `No matches for "${normalizedQuery}".`;
+    }
+    return;
+  }
+
+  actionSelect.innerHTML = "";
+  const groups = new Map();
+
+  for (const entry of filteredEntries) {
+    let group = groups.get(entry.category);
+    if (!group) {
+      group = document.createElement("optgroup");
+      group.label = entry.category;
+      groups.set(entry.category, group);
+      actionSelect.appendChild(group);
+    }
+
+    const option = document.createElement("option");
+    option.value = entry.value;
+    option.textContent = entry.label;
+    group.appendChild(option);
+  }
+
+  const hasCurrent = filteredEntries.some((entry) => entry.value === currentValue);
+  const fallback = filteredEntries.find((entry) => entry.value === "ping") ?? filteredEntries[0];
+  actionSelect.value = hasCurrent ? currentValue : fallback.value;
+
+  if (actionSearchInfo) {
+    if (normalizedQuery) {
+      actionSearchInfo.textContent = `Showing ${filteredEntries.length} of ${COMMAND_LIBRARY_INDEX.length} commands.`;
+    } else {
+      actionSearchInfo.textContent = `Showing all ${COMMAND_LIBRARY_INDEX.length} commands.`;
+    }
+  }
+}
+
+function setSelectedAction(action) {
+  const normalized = normalizeActionText(action);
+  if (!normalized || !KNOWN_ACTION_VALUES.has(normalized)) {
+    return false;
+  }
+
+  actionSelect.value = normalized;
+  localStorage.setItem(LAST_ACTION_KEY, normalized);
+  return true;
+}
+
 function composeCommand() {
   const target = (targetInput.value || "").trim().toLowerCase();
-  const action = (actionSelect.value || "").trim().toLowerCase();
+  const action = normalizeActionText(actionSelect.value);
   const arg = (argInput.value || "").trim();
 
   if (!target || !action) {
@@ -349,7 +528,7 @@ function composeCommand() {
     return arg ? `${target} notify ${arg}` : `${target} notify hello`;
   }
 
-  if (arg && (action === "volume up" || action === "volume down" || action === "next" || action === "previous")) {
+  if (arg && REPEATABLE_ACTIONS.has(action)) {
     return `${target} ${action} ${arg}`;
   }
 
@@ -357,7 +536,7 @@ function composeCommand() {
 }
 
 function updateDangerZone() {
-  const action = (actionSelect.value || "").trim().toLowerCase();
+  const action = normalizeActionText(actionSelect.value);
   dangerZone.classList.toggle("hidden", !dangerousActions.has(action));
 }
 
@@ -517,8 +696,22 @@ async function sendCommand() {
   };
 
   const { data, latencyMs } = await apiRequest("/api/command", payload);
-  setLastCommandSuccess();
+  if (data && data.ok === true) {
+    setLastCommandSuccess();
+  }
   setResult(data, { requestId, latencyMs });
+}
+
+function persistUpdateSettings() {
+  if (!updateTargetInput || !updateVersionInput || !updateUrlInput || !updateShaInput || !updateSizeInput) {
+    return;
+  }
+
+  localStorage.setItem(UPDATE_TARGET_KEY, (updateTargetInput.value || "").trim().toLowerCase());
+  localStorage.setItem(UPDATE_VERSION_KEY, (updateVersionInput.value || "").trim());
+  localStorage.setItem(UPDATE_URL_KEY, (updateUrlInput.value || "").trim());
+  localStorage.setItem(UPDATE_SHA_KEY, (updateShaInput.value || "").trim().toLowerCase());
+  localStorage.setItem(UPDATE_SIZE_KEY, (updateSizeInput.value || "").trim());
 }
 
 async function pushUpdate() {
@@ -544,6 +737,19 @@ async function pushUpdate() {
     throw new Error("Update package URL is required.");
   }
 
+  try {
+    const parsed = new URL(packageUrl);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("protocol");
+    }
+  } catch {
+    throw new Error("Update package URL must be an absolute http/https URL.");
+  }
+
+  if (sha256 && !SHA256_HEX_RE.test(sha256)) {
+    throw new Error("SHA256 must be a 64-character hex string.");
+  }
+
   let sizeBytes;
   if (sizeRaw) {
     const parsedSize = Number.parseInt(sizeRaw, 10);
@@ -552,6 +758,8 @@ async function pushUpdate() {
     }
     sizeBytes = parsedSize;
   }
+
+  persistUpdateSettings();
 
   const requestId = nowRequestId();
   const payload = {
@@ -640,7 +848,6 @@ function init() {
   tokenInput.value = getToken();
   loadLastCommandSuccess();
   setConnectionStatus(getToken() ? "retrying" : "disconnected");
-  updateDangerZone();
 
   const lastTarget = localStorage.getItem(TARGET_KEY);
   if (lastTarget) {
@@ -655,16 +862,12 @@ function init() {
     updateSizeInput.value = localStorage.getItem(UPDATE_SIZE_KEY) || "";
   }
 
-  const initialCommand = composeCommand();
-  if (initialCommand) {
-    commandText.value = initialCommand;
-  }
+  renderActionOptions("");
 
   const bootstrapAction = localStorage.getItem(BOOTSTRAP_ACTION_KEY);
-  if (bootstrapAction && actionSelect.querySelector(`option[value="${bootstrapAction}"]`)) {
-    actionSelect.value = bootstrapAction;
-    updateDangerZone();
-  }
+  const rememberedAction = localStorage.getItem(LAST_ACTION_KEY);
+  setSelectedAction(bootstrapAction) || setSelectedAction(rememberedAction) || setSelectedAction("ping");
+  updateDangerZone();
 
   const bootstrapArg = localStorage.getItem(BOOTSTRAP_ARG_KEY);
   if (bootstrapArg) {
@@ -681,7 +884,30 @@ function init() {
   localStorage.removeItem(BOOTSTRAP_ACTION_KEY);
   localStorage.removeItem(BOOTSTRAP_ARG_KEY);
 
+  if (actionSearchInput) {
+    actionSearchInput.addEventListener("input", () => {
+      renderActionOptions(actionSearchInput.value);
+      localStorage.setItem(LAST_ACTION_KEY, normalizeActionText(actionSelect.value));
+      updateDangerZone();
+      commandText.value = composeCommand();
+    });
+
+    actionSearchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        actionSearchInput.value = "";
+        renderActionOptions("");
+        updateDangerZone();
+        commandText.value = composeCommand();
+        event.preventDefault();
+      } else if (event.key === "ArrowDown") {
+        actionSelect.focus();
+        event.preventDefault();
+      }
+    });
+  }
+
   actionSelect.addEventListener("change", () => {
+    localStorage.setItem(LAST_ACTION_KEY, normalizeActionText(actionSelect.value));
     updateDangerZone();
     commandText.value = composeCommand();
   });
@@ -694,7 +920,7 @@ function init() {
     commandText.value = composeCommand();
   });
 
-  argInput.addEventListener("change", () => {
+  argInput.addEventListener("input", () => {
     commandText.value = composeCommand();
   });
 
@@ -707,9 +933,11 @@ function init() {
     const apiBase = apiBaseInput.value.trim();
 
     if (!token) {
+      clearToken();
       setAuthHint("Token is empty.", true);
       setResult("Token is empty.", { isError: true });
       setConnectionStatus("disconnected");
+      schedulePolling();
       return;
     }
 
@@ -729,19 +957,19 @@ function init() {
 
   if (updateTargetInput && updateVersionInput && updateUrlInput && updateShaInput && updateSizeInput) {
     updateTargetInput.addEventListener("change", () => {
-      localStorage.setItem(UPDATE_TARGET_KEY, updateTargetInput.value.trim().toLowerCase());
+      persistUpdateSettings();
     });
     updateVersionInput.addEventListener("change", () => {
-      localStorage.setItem(UPDATE_VERSION_KEY, updateVersionInput.value.trim());
+      persistUpdateSettings();
     });
     updateUrlInput.addEventListener("change", () => {
-      localStorage.setItem(UPDATE_URL_KEY, updateUrlInput.value.trim());
+      persistUpdateSettings();
     });
     updateShaInput.addEventListener("change", () => {
-      localStorage.setItem(UPDATE_SHA_KEY, updateShaInput.value.trim().toLowerCase());
+      persistUpdateSettings();
     });
     updateSizeInput.addEventListener("change", () => {
-      localStorage.setItem(UPDATE_SIZE_KEY, updateSizeInput.value.trim());
+      persistUpdateSettings();
     });
   }
 

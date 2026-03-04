@@ -44,6 +44,8 @@ export async function inspectPackageFromUrl(input: {
       throw new PackageInspectionError("UPDATE_FETCH_FAILED", `Package URL returned HTTP ${response.status}`);
     }
 
+    const finalUrl = parseAndValidateUrl(response.url || parsed.toString(), input.requireHttps);
+
     const lengthHeader = response.headers.get("content-length");
     if (lengthHeader) {
       const length = Number.parseInt(lengthHeader, 10);
@@ -91,7 +93,7 @@ export async function inspectPackageFromUrl(input: {
     return {
       sha256: hash.digest("hex"),
       sizeBytes,
-      finalUrl: response.url || parsed.toString(),
+      finalUrl: finalUrl.toString(),
     };
   } catch (error) {
     if (error instanceof PackageInspectionError) {
@@ -123,6 +125,14 @@ function parseAndValidateUrl(input: string, requireHttps: boolean): URL {
 
   if (!requireHttps && parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new PackageInspectionError("INVALID_UPDATE_URL", "package_url must use http or https");
+  }
+
+  if (!parsed.hostname) {
+    throw new PackageInspectionError("INVALID_UPDATE_URL", "package_url must include a valid host");
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new PackageInspectionError("INVALID_UPDATE_URL", "package_url must not include credentials");
   }
 
   return parsed;

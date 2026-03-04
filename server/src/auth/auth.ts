@@ -6,15 +6,29 @@ export function extractBearerToken(authorizationHeader?: string | string[]): str
   }
 
   if (Array.isArray(authorizationHeader)) {
+    if (authorizationHeader.length !== 1) {
+      return null;
+    }
+
+    return extractBearerToken(authorizationHeader[0]);
+  }
+
+  const trimmed = authorizationHeader.trim();
+  if (!trimmed) {
     return null;
   }
 
-  const [scheme, token] = authorizationHeader.split(" ");
-  if (!scheme || !token || scheme.toLowerCase() !== "bearer") {
+  const parts = trimmed.split(/\s+/);
+  if (parts.length !== 2) {
     return null;
   }
 
-  return token.trim() || null;
+  const [scheme, token] = parts;
+  if (scheme.toLowerCase() !== "bearer") {
+    return null;
+  }
+
+  return token || null;
 }
 
 export function constantTimeEqual(left: string, right: string): boolean {

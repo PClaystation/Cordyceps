@@ -53,14 +53,34 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config file: %w", err)
 	}
 
+	cfg.DeviceID = SanitizeDeviceID(cfg.DeviceID)
+	cfg.DeviceToken = strings.TrimSpace(cfg.DeviceToken)
+	cfg.ServerBaseURL = strings.TrimSuffix(strings.TrimSpace(cfg.ServerBaseURL), "/")
+	cfg.WSURL = strings.TrimSpace(cfg.WSURL)
+	cfg.Version = strings.TrimSpace(cfg.Version)
+
 	if cfg.HeartbeatSeconds <= 0 {
 		cfg.HeartbeatSeconds = 60
+	}
+
+	if cfg.DeviceToken == "" {
+		return nil, errors.New("config missing device_token")
+	}
+
+	if cfg.ServerBaseURL == "" {
+		return nil, errors.New("config missing server_base_url")
 	}
 
 	return &cfg, nil
 }
 
 func Save(path string, cfg *Config) error {
+	cfg.DeviceID = SanitizeDeviceID(cfg.DeviceID)
+	cfg.DeviceToken = strings.TrimSpace(cfg.DeviceToken)
+	cfg.ServerBaseURL = strings.TrimSuffix(strings.TrimSpace(cfg.ServerBaseURL), "/")
+	cfg.WSURL = strings.TrimSpace(cfg.WSURL)
+	cfg.Version = strings.TrimSpace(cfg.Version)
+
 	if cfg.HeartbeatSeconds <= 0 {
 		cfg.HeartbeatSeconds = 60
 	}

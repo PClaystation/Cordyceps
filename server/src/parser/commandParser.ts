@@ -24,6 +24,18 @@ const OPEN_APP_ALIASES: Record<string, string> = {
   teams: "teams",
   taskmanager: "taskmanager",
   "task manager": "taskmanager",
+  terminal: "terminal",
+  "windows terminal": "terminal",
+  powershell: "powershell",
+  "power shell": "powershell",
+  cmd: "cmd",
+  "command prompt": "cmd",
+  controlpanel: "controlpanel",
+  "control panel": "controlpanel",
+  paint: "paint",
+  mspaint: "paint",
+  snippingtool: "snippingtool",
+  "snipping tool": "snippingtool",
 };
 
 const OPEN_APP_ALLOWLIST = new Set(Object.values(OPEN_APP_ALIASES));

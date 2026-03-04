@@ -17,3 +17,9 @@ agent/*.exe
 .DS_Store
 .vscode/
 .idea/
+
+# Xcode
+DerivedData/
+*.xcuserstate
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/

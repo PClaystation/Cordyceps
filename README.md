@@ -26,7 +26,7 @@ Phone-driven remote command system:
 - Go agent with startup registration attempt (Windows task scheduler)
 - Allowlisted agent actions:
   - `PING`
-  - `OPEN_APP` (`spotify`, `discord`, `chrome`, `steam`, `explorer`, `vscode`, `edge`, `firefox`, `notepad`, `calculator`, `settings`, `slack`, `teams`, `taskmanager`)
+  - `OPEN_APP` (`spotify`, `discord`, `chrome`, `steam`, `explorer`, `vscode`, `edge`, `firefox`, `notepad`, `calculator`, `settings`, `slack`, `teams`, `taskmanager`, `terminal`, `powershell`, `cmd`, `controlpanel`, `paint`, `snippingtool`)
   - `MEDIA_PLAY`, `MEDIA_PAUSE`, `MEDIA_PLAY_PAUSE`, `MEDIA_NEXT`, `MEDIA_PREVIOUS`
   - `VOLUME_UP`, `VOLUME_DOWN`, `MUTE`
   - `LOCK_PC`
@@ -57,6 +57,8 @@ Examples:
 - `m3 lock`
 - `m1 open vscode`
 - `m1 open task manager`
+- `m1 open terminal`
+- `m1 open powershell`
 - `m1 restart`
 - `m1 notify hello`
 - `all ping`
@@ -140,6 +142,11 @@ go build -o jarvis-agent.exe ./cmd/agent
 .\jarvis-agent.exe --server-url "https://your-server.example" --device-id "m1" --bootstrap-token "YOUR_BOOTSTRAP_TOKEN"
 ```
 
+Windows runtime behavior:
+
+- default: relaunches itself detached in the background (safe to close the launching terminal)
+- debug mode: add `--foreground` to keep logs attached to your console
+
 What first run does:
 
 - enrolls via `/api/enroll`
@@ -154,6 +161,16 @@ Default config path on Windows:
 ## iPhone Shortcut
 
 See [docs/iphone-shortcut.md](docs/iphone-shortcut.md).
+
+## Native iOS App
+
+A native SwiftUI iPhone app is available in:
+
+- `ios/JarvisRemote/`
+
+Open `ios/JarvisRemote/JarvisRemote.xcodeproj` in Xcode and follow:
+
+- [ios/JarvisRemote/README.md](ios/JarvisRemote/README.md)
 
 ## PWA Client (Recommended)
 

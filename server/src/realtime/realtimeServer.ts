@@ -78,7 +78,7 @@ function closeQuietly(socket: WsLike, code: number, reason: string): void {
 }
 
 function parseJson(input: unknown): Record<string, unknown> | null {
-  const text = typeof input === "string" ? input : input instanceof Buffer ? input.toString("utf8") : "";
+  const text = decodePayload(input);
   if (!text) {
     return null;
   }
@@ -104,6 +104,14 @@ function payloadSizeBytes(input: unknown): number {
     return input.byteLength;
   }
 
+  if (input instanceof ArrayBuffer) {
+    return input.byteLength;
+  }
+
+  if (ArrayBuffer.isView(input)) {
+    return input.byteLength;
+  }
+
   return 0;
 }
 
@@ -119,12 +127,72 @@ function safeSendJson(socket: WsLike, payload: Record<string, unknown>): void {
   }
 }
 
-function isString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
+function decodePayload(input: unknown): string {
+  if (typeof input === "string") {
+    return input;
+  }
+
+  if (input instanceof Buffer) {
+    return input.toString("utf8");
+  }
+
+  if (input instanceof ArrayBuffer) {
+    return Buffer.from(input).toString("utf8");
+  }
+
+  if (ArrayBuffer.isView(input)) {
+    return Buffer.from(input.buffer, input.byteOffset, input.byteLength).toString("utf8");
+  }
+
+  return "";
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+function normalizeRequiredString(value: unknown, maxLength: number): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLength) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+function normalizeCapabilities(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+
+    const capability = item.trim().toLowerCase();
+    if (!capability || capability.length > 40) {
+      continue;
+    }
+
+    if (!/^[a-z0-9_-]+$/.test(capability)) {
+      continue;
+    }
+
+    if (!seen.has(capability)) {
+      seen.add(capability);
+      normalized.push(capability);
+    }
+
+    if (normalized.length >= 50) {
+      break;
+    }
+  }
+
+  return normalized;
 }
 
 function isValidDeviceId(value: string): boolean {
@@ -136,33 +204,29 @@ function asHelloMessage(value: Record<string, unknown>): AgentHelloMessage | nul
     return null;
   }
 
-  if (
-    !isString(value.device_id) ||
-    !isString(value.token) ||
-    !isString(value.version) ||
-    !isString(value.hostname) ||
-    !isString(value.username) ||
-    !isStringArray(value.capabilities)
-  ) {
+  const deviceId = normalizeRequiredString(value.device_id, 32);
+  const token = normalizeRequiredString(value.token, 256);
+  const version = normalizeRequiredString(value.version, 64);
+  const hostname = normalizeRequiredString(value.hostname, 120);
+  const username = normalizeRequiredString(value.username, 120);
+  const capabilities = normalizeCapabilities(value.capabilities);
+
+  if (!deviceId || !token || !version || !hostname || !username || !capabilities) {
     return null;
   }
 
-  if (!isValidDeviceId(value.device_id)) {
-    return null;
-  }
-
-  if (value.token.length > 256 || value.version.length > 64) {
+  if (!isValidDeviceId(deviceId)) {
     return null;
   }
 
   return {
     kind: "hello",
-    device_id: value.device_id,
-    token: value.token,
-    version: value.version,
-    hostname: value.hostname,
-    username: value.username,
-    capabilities: value.capabilities,
+    device_id: deviceId,
+    token,
+    version,
+    hostname,
+    username,
+    capabilities,
   };
 }
 
@@ -171,14 +235,16 @@ function asHeartbeatMessage(value: Record<string, unknown>): AgentHeartbeatMessa
     return null;
   }
 
-  if (!isString(value.device_id) || !isString(value.sent_at)) {
+  const deviceId = normalizeRequiredString(value.device_id, 32);
+  const sentAt = normalizeRequiredString(value.sent_at, 80);
+  if (!deviceId || !sentAt || !isValidDeviceId(deviceId)) {
     return null;
   }
 
   return {
     kind: "heartbeat",
-    device_id: value.device_id,
-    sent_at: value.sent_at,
+    device_id: deviceId,
+    sent_at: sentAt,
   };
 }
 
@@ -187,33 +253,43 @@ function asResultMessage(value: Record<string, unknown>): AgentResultMessage | n
     return null;
   }
 
+  const requestId = normalizeRequiredString(value.request_id, 100);
+  const deviceId = normalizeRequiredString(value.device_id, 32);
+  const message = normalizeRequiredString(value.message, 1000);
+  const completedAt = normalizeRequiredString(value.completed_at, 80);
+
   if (
-    !isString(value.request_id) ||
-    !isString(value.device_id) ||
+    !requestId ||
+    !deviceId ||
     typeof value.ok !== "boolean" ||
-    !isString(value.message) ||
-    !isString(value.completed_at)
+    !message ||
+    !completedAt
   ) {
     return null;
   }
 
-  if (value.error_code !== undefined && typeof value.error_code !== "string") {
+  if (!isValidDeviceId(deviceId)) {
     return null;
   }
 
-  if (value.version !== undefined && typeof value.version !== "string") {
+  if (value.error_code !== undefined && normalizeRequiredString(value.error_code, 100) === null) {
+    return null;
+  }
+
+  if (value.version !== undefined && normalizeRequiredString(value.version, 64) === null) {
     return null;
   }
 
   return {
     kind: "result",
-    request_id: value.request_id,
-    device_id: value.device_id,
+    request_id: requestId,
+    device_id: deviceId,
     ok: value.ok,
-    message: value.message,
-    error_code: value.error_code,
-    completed_at: value.completed_at,
-    version: value.version,
+    message,
+    error_code:
+      value.error_code === undefined ? undefined : normalizeRequiredString(value.error_code, 100) ?? undefined,
+    completed_at: completedAt,
+    version: value.version === undefined ? undefined : normalizeRequiredString(value.version, 64) ?? undefined,
   };
 }
 

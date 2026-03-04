@@ -12,11 +12,13 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/charliearnerstal/jarvis/agent/internal/background"
 	"github.com/charliearnerstal/jarvis/agent/internal/commands"
 	"github.com/charliearnerstal/jarvis/agent/internal/config"
 	"github.com/charliearnerstal/jarvis/agent/internal/protocol"
@@ -49,12 +51,14 @@ type enrollResponse struct {
 
 func main() {
 	var (
-		serverURLFlag     string
-		deviceIDFlag      string
+		serverURLFlag      string
+		deviceIDFlag       string
 		bootstrapTokenFlag string
-		versionFlag       string
-		configPathFlag    string
-		enrollOnlyFlag    bool
+		versionFlag        string
+		configPathFlag     string
+		enrollOnlyFlag     bool
+		foregroundFlag     bool
+		runAgentFlag       bool
 	)
 
 	flag.StringVar(&serverURLFlag, "server-url", strings.TrimSpace(os.Getenv("JARVIS_SERVER_URL")), "Server base URL (e.g. https://jarvis.example)")
@@ -63,9 +67,25 @@ func main() {
 	flag.StringVar(&versionFlag, "version", defaultVersion, "Agent version string")
 	flag.StringVar(&configPathFlag, "config", "", "Path to agent config file")
 	flag.BoolVar(&enrollOnlyFlag, "enroll-only", false, "Enroll and exit")
+	flag.BoolVar(&foregroundFlag, "foreground", false, "Run in the current console instead of background mode (Windows)")
+	flag.BoolVar(&runAgentFlag, "run-agent", false, "Internal flag used for detached relaunch")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC)
+
+	executablePath, execPathErr := os.Executable()
+	if execPathErr != nil {
+		log.Printf("warning: resolve executable path failed: %v", execPathErr)
+	} else {
+		if shouldRelaunchDetached(foregroundFlag, runAgentFlag, enrollOnlyFlag) {
+			args := relaunchArgs(os.Args[1:])
+			if err := background.RelaunchDetached(executablePath, args); err != nil {
+				log.Printf("warning: detached relaunch failed; continuing in foreground: %v", err)
+			} else {
+				return
+			}
+		}
+	}
 
 	cfgPath := strings.TrimSpace(configPathFlag)
 	if cfgPath == "" {
@@ -113,13 +133,10 @@ func main() {
 		log.Fatalf("persist config: %v", err)
 	}
 
-	executablePath, err := os.Executable()
-	if err == nil {
+	if execPathErr == nil {
 		if startupErr := startup.EnsureStartupRegistration(executablePath); startupErr != nil {
 			log.Printf("warning: startup registration failed: %v", startupErr)
 		}
-	} else {
-		log.Printf("warning: resolve executable path failed: %v", err)
 	}
 
 	if enrollOnlyFlag {
@@ -180,9 +197,19 @@ func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, 
 		return nil, fmt.Errorf("serialize enroll request: %w", err)
 	}
 
-	resp, err := http.Post(base+"/api/enroll", "application/json", bytes.NewReader(payload))
+	request, err := http.NewRequest(http.MethodPost, base+"/api/enroll", bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("post enroll request: %w", err)
+		return nil, fmt.Errorf("build enroll request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 20 * time.Second,
+	}
+
+	resp, err := client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("send enroll request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -198,6 +225,17 @@ func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, 
 		return nil, fmt.Errorf("enrollment rejected: %s", enrollResp.Message)
 	}
 
+	enrolledDeviceID := strings.TrimSpace(enrollResp.DeviceID)
+	if enrolledDeviceID == "" {
+		enrolledDeviceID = deviceID
+	}
+	enrolledDeviceID = config.SanitizeDeviceID(enrolledDeviceID)
+
+	deviceToken := strings.TrimSpace(enrollResp.DeviceToken)
+	if deviceToken == "" {
+		return nil, errors.New("enrollment response missing device_token")
+	}
+
 	wsURL := strings.TrimSpace(enrollResp.WSURL)
 	if wsURL == "" {
 		wsURL, err = deriveWSURL(base)
@@ -207,8 +245,8 @@ func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, 
 	}
 
 	cfg := &config.Config{
-		DeviceID:         enrollResp.DeviceID,
-		DeviceToken:      enrollResp.DeviceToken,
+		DeviceID:         enrolledDeviceID,
+		DeviceToken:      deviceToken,
 		ServerBaseURL:    base,
 		WSURL:            wsURL,
 		HeartbeatSeconds: 60,
@@ -269,9 +307,17 @@ func runSession(ctx context.Context, cfg *config.Config, cfgPath string) error {
 	conn.SetReadLimit(65_536)
 
 	hostname, _ := os.Hostname()
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		hostname = "unknown-host"
+	}
+
 	username := strings.TrimSpace(os.Getenv("USERNAME"))
 	if username == "" {
 		username = strings.TrimSpace(os.Getenv("USER"))
+	}
+	if username == "" {
+		username = "unknown-user"
 	}
 
 	hello := protocol.HelloMessage{
@@ -471,4 +517,39 @@ func deriveWSURL(serverBaseURL string) (string, error) {
 	parsed.Fragment = ""
 
 	return parsed.String(), nil
+}
+
+func shouldRelaunchDetached(foreground bool, runAgent bool, enrollOnly bool) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+
+	return !foreground && !runAgent && !enrollOnly
+}
+
+func relaunchArgs(args []string) []string {
+	filtered := make([]string, 0, len(args)+1)
+	for _, arg := range args {
+		if isFlag(arg, "foreground") || isFlag(arg, "run-agent") {
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+
+	filtered = append(filtered, "--run-agent")
+	return filtered
+}
+
+func isFlag(arg string, name string) bool {
+	trimmed := strings.TrimSpace(arg)
+	if trimmed == "" {
+		return false
+	}
+
+	long := "--" + name
+	short := "-" + name
+	return trimmed == long ||
+		trimmed == short ||
+		strings.HasPrefix(trimmed, long+"=") ||
+		strings.HasPrefix(trimmed, short+"=")
 }

@@ -289,7 +289,13 @@ async function main(): Promise<void> {
     });
   }
 
+  let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+
     clearInterval(heartbeatSweepTimer);
     log("info", "Shutting down server");
 
@@ -299,7 +305,22 @@ async function main(): Promise<void> {
       // ignore pending cleanup errors during shutdown
     }
 
-    await server.close();
+    try {
+      await server.close();
+    } catch (error) {
+      log("warn", "Server close failed during shutdown", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    try {
+      db.close();
+    } catch (error) {
+      log("warn", "Database close failed during shutdown", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     process.exit(0);
   };
 

@@ -15,20 +15,26 @@ import (
 const commandTimeout = 8 * time.Second
 
 var openAppTargets = map[string]string{
-	"spotify":    "spotify:",
-	"discord":    "discord://",
-	"chrome":     "chrome",
-	"steam":      "steam://open/main",
-	"explorer":   "explorer",
-	"vscode":     "code",
-	"edge":       "msedge",
-	"firefox":    "firefox",
-	"notepad":    "notepad",
-	"calculator": "calc",
-	"settings":   "ms-settings:",
-	"slack":      "slack:",
-	"teams":      "msteams:",
-	"taskmanager": "taskmgr",
+	"spotify":      "spotify:",
+	"discord":      "discord://",
+	"chrome":       "chrome",
+	"steam":        "steam://open/main",
+	"explorer":     "explorer",
+	"vscode":       "code",
+	"edge":         "msedge",
+	"firefox":      "firefox",
+	"notepad":      "notepad",
+	"calculator":   "calc",
+	"settings":     "ms-settings:",
+	"slack":        "slack:",
+	"teams":        "msteams:",
+	"taskmanager":  "taskmgr",
+	"terminal":     "wt",
+	"powershell":   "powershell",
+	"cmd":          "cmd",
+	"controlpanel": "control",
+	"paint":        "mspaint",
+	"snippingtool": "snippingtool",
 }
 
 func Capabilities() []string {
@@ -265,12 +271,23 @@ func readOptionalIntArg(args map[string]any, key string, fallback int, min int, 
 		if math.Trunc(typed) != typed {
 			return 0, fmt.Errorf("arg must be integer: %s", key)
 		}
+
+		maxInt := int64(^uint(0) >> 1)
+		minInt := -maxInt - 1
+		if typed > float64(maxInt) || typed < float64(minInt) {
+			return 0, fmt.Errorf("arg out of range: %s", key)
+		}
 		asInt = int(typed)
 	case int:
 		asInt = typed
 	case int32:
 		asInt = int(typed)
 	case int64:
+		maxInt := int64(^uint(0) >> 1)
+		minInt := -maxInt - 1
+		if typed > maxInt || typed < minInt {
+			return 0, fmt.Errorf("arg out of range: %s", key)
+		}
 		asInt = int(typed)
 	default:
 		return 0, fmt.Errorf("arg must be number: %s", key)
@@ -412,10 +429,13 @@ func runWithTimeout(cmd *exec.Cmd, timeout time.Duration) error {
 		done <- cmd.Wait()
 	}()
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(timeout):
+	case <-timer.C:
 		_ = cmd.Process.Kill()
 		return errors.New("command timed out")
 	}

@@ -46,38 +46,19 @@
             <label for="targetInput">Target</label>
             <input id="targetInput" type="text" value="m1" />
           </div>
-          <div>
+          <div class="command-browser">
+            <label for="actionSearchInput">Find Action</label>
+            <input
+              id="actionSearchInput"
+              type="search"
+              placeholder="Search commands, aliases, and apps"
+              autocomplete="off"
+            />
             <label for="actionSelect">Action</label>
             <select id="actionSelect">
               <option value="ping">ping</option>
-              <option value="open spotify">open spotify</option>
-              <option value="open discord">open discord</option>
-              <option value="open chrome">open chrome</option>
-              <option value="open steam">open steam</option>
-              <option value="open explorer">open explorer</option>
-              <option value="open vscode">open vscode</option>
-              <option value="open edge">open edge</option>
-              <option value="open firefox">open firefox</option>
-              <option value="open notepad">open notepad</option>
-              <option value="open calculator">open calculator</option>
-              <option value="open settings">open settings</option>
-              <option value="open slack">open slack</option>
-              <option value="open teams">open teams</option>
-              <option value="open task manager">open task manager</option>
-              <option value="play">play</option>
-              <option value="pause">pause</option>
-              <option value="play pause">play pause</option>
-              <option value="next">next</option>
-              <option value="previous">previous</option>
-              <option value="volume up">volume up</option>
-              <option value="volume down">volume down</option>
-              <option value="mute">mute</option>
-              <option value="lock">lock</option>
-              <option value="sleep">sleep</option>
-              <option value="shutdown">shutdown</option>
-              <option value="restart">restart</option>
-              <option value="notify">notify</option>
             </select>
+            <p id="actionSearchInfo" class="muted">Showing all commands.</p>
           </div>
         </div>
         <label for="argInput">Argument (notify text or optional repeat count)</label>

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import BetterSqlite3 from "better-sqlite3";
+import { constantTimeEqual } from "../auth/auth";
 import type { DeviceRecord } from "../types/protocol";
 import { sha256Hex } from "../utils/crypto";
 
@@ -142,7 +143,7 @@ export class Database {
       return false;
     }
 
-    return row.auth_token_hash === sha256Hex(rawToken);
+    return constantTimeEqual(row.auth_token_hash, sha256Hex(rawToken));
   }
 
   public getDevice(deviceId: string): DeviceRecord | null {
@@ -171,7 +172,9 @@ export class Database {
     capabilities?: string[];
   }): void {
     const now = new Date().toISOString();
-    const capabilitiesJson = JSON.stringify(input.capabilities ?? []);
+    const capabilitiesJson = Array.isArray(input.capabilities)
+      ? JSON.stringify(input.capabilities)
+      : null;
 
     const statement = this.db.prepare(`
       UPDATE devices
@@ -180,7 +183,7 @@ export class Database {
           version = COALESCE(@version, version),
           hostname = COALESCE(@hostname, hostname),
           username = COALESCE(@username, username),
-          capabilities_json = CASE WHEN @capabilities_json = '' THEN capabilities_json ELSE @capabilities_json END,
+          capabilities_json = COALESCE(@capabilities_json, capabilities_json),
           updated_at = @updated_at
       WHERE device_id = @device_id
     `);
@@ -194,6 +197,10 @@ export class Database {
       capabilities_json: capabilitiesJson,
       updated_at: now,
     });
+  }
+
+  public close(): void {
+    this.db.close();
   }
 
   public markDeviceOffline(deviceId: string): void {

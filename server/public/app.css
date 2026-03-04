@@ -151,6 +151,16 @@ button.primary:active {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.command-browser {
+  display: grid;
+  gap: 6px;
+}
+
+#actionSearchInfo {
+  margin-top: 2px;
+  font-size: 0.8rem;
+}
+
 .row {
   display: flex;
   gap: 8px;

@@ -188,6 +188,21 @@ func downloadAndVerify(request updateRequest, outputPath string) error {
 		return fmt.Errorf("update package responded with HTTP %d", resp.StatusCode)
 	}
 
+	if resp.Request == nil || resp.Request.URL == nil {
+		return errors.New("download response did not include a final URL")
+	}
+
+	finalURL := resp.Request.URL
+	if finalURL.Scheme != "https" {
+		return fmt.Errorf("update package redirected to non-https URL: %s", finalURL.String())
+	}
+	if finalURL.Host == "" {
+		return errors.New("update package final URL is missing host")
+	}
+	if finalURL.User != nil {
+		return errors.New("update package URL must not include credentials")
+	}
+
 	if resp.ContentLength > maxPackageBytes {
 		return fmt.Errorf("package too large (%d bytes, max %d)", resp.ContentLength, maxPackageBytes)
 	}

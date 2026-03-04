@@ -17,13 +17,21 @@ export interface ConnectedDevice {
   lastSeenAt: number;
 }
 
+function closeSocketQuietly(socket: SocketLike, code: number, reason: string): void {
+  try {
+    socket.close(code, reason);
+  } catch {
+    // Socket may already be closed or invalid.
+  }
+}
+
 export class DeviceRegistry {
   private readonly devices = new Map<string, ConnectedDevice>();
 
   public register(device: Omit<ConnectedDevice, "connectedAt" | "lastSeenAt">): ConnectedDevice {
     const existing = this.devices.get(device.deviceId);
     if (existing) {
-      existing.socket.close(4000, "Superseded by a new session");
+      closeSocketQuietly(existing.socket, 4000, "Superseded by a new session");
     }
 
     const now = Date.now();
@@ -80,7 +88,7 @@ export class DeviceRegistry {
         continue;
       }
 
-      device.socket.close(4002, "Heartbeat timeout");
+      closeSocketQuietly(device.socket, 4002, "Heartbeat timeout");
       this.devices.delete(deviceId);
       removed.push(deviceId);
     }

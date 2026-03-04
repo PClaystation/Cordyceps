@@ -45,12 +45,13 @@ interface UpdateRequestBody {
   version?: string;
   package_url?: string;
   sha256?: string;
-  size_bytes?: number;
+  size_bytes?: unknown;
 }
 
 const MAX_TEXT_LEN = 280;
 const MAX_SOURCE_LEN = 40;
 const MAX_UPDATE_VERSION_LEN = 64;
+const MAX_CAPABILITIES = 50;
 
 function makeLogId(requestId: string, deviceId: string): string {
   return `${requestId}:${deviceId}`;
@@ -69,8 +70,12 @@ function isPhoneAuthorized(request: FastifyRequest, config: AppConfig): boolean 
   return constantTimeEqual(token, config.phoneApiToken);
 }
 
-function normalizeRequestId(candidate?: string): string {
-  const value = candidate?.trim();
+function asTrimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeRequestId(candidate: unknown): string {
+  const value = asTrimmedString(candidate);
   if (!value) {
     return makeRequestId();
   }
@@ -82,13 +87,18 @@ function normalizeRequestId(candidate?: string): string {
   return value;
 }
 
-function normalizeSource(candidate?: string): string {
-  const value = candidate?.trim().toLowerCase() ?? "iphone";
+function normalizeSource(candidate: unknown): string {
+  const value = asTrimmedString(candidate).toLowerCase();
   if (!value) {
     return "iphone";
   }
 
-  return value.slice(0, MAX_SOURCE_LEN);
+  const safeValue = value.replace(/[^a-z0-9_.:-]/g, "");
+  if (!safeValue) {
+    return "iphone";
+  }
+
+  return safeValue.slice(0, MAX_SOURCE_LEN);
 }
 
 function parseDispatchError(error: unknown): { code: string; message: string; httpStatus: number } {
@@ -163,32 +173,32 @@ function asUpdateBody(body: unknown): UpdateRequestBody {
   return body as UpdateRequestBody;
 }
 
-function normalizeUpdateTarget(candidate?: string): string {
-  return candidate?.trim().toLowerCase() ?? "";
+function normalizeUpdateTarget(candidate: unknown): string {
+  return asTrimmedString(candidate).toLowerCase();
 }
 
 function isValidTargetFormat(value: string): boolean {
   return /^(all|m[a-z0-9_-]{1,31})$/.test(value);
 }
 
-function normalizeUpdateVersion(candidate?: string): string {
-  return candidate?.trim() ?? "";
+function normalizeUpdateVersion(candidate: unknown): string {
+  return asTrimmedString(candidate);
 }
 
 function isValidUpdateVersion(value: string): boolean {
   return /^[A-Za-z0-9._-]{1,64}$/.test(value);
 }
 
-function normalizeSha256(candidate?: string): string {
-  return candidate?.trim().toLowerCase() ?? "";
+function normalizeSha256(candidate: unknown): string {
+  return asTrimmedString(candidate).toLowerCase();
 }
 
 function isValidSha256(value: string): boolean {
   return /^[a-f0-9]{64}$/.test(value);
 }
 
-function normalizeUpdatePackageUrl(candidate?: string, enforceHttps = true): string | null {
-  const value = candidate?.trim() ?? "";
+function normalizeUpdatePackageUrl(candidate: unknown, enforceHttps = true): string | null {
+  const value = asTrimmedString(candidate);
   if (!value) {
     return null;
   }
@@ -230,6 +240,46 @@ function makeUpdateRawText(target: string, version: string, packageUrl: string):
   return `${target} update ${version} ${packageUrl}`;
 }
 
+function normalizeOptionalText(value: unknown, maxLength: number): string | undefined {
+  const normalized = asTrimmedString(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.slice(0, maxLength);
+}
+
+function normalizeCapabilities(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const capabilities: string[] = [];
+  const seen = new Set<string>();
+
+  for (const item of value) {
+    const normalized = asTrimmedString(item).toLowerCase();
+    if (!normalized || normalized.length > 40) {
+      continue;
+    }
+
+    if (!/^[a-z0-9_-]+$/.test(normalized)) {
+      continue;
+    }
+
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      capabilities.push(normalized);
+    }
+
+    if (capabilities.length >= MAX_CAPABILITIES) {
+      break;
+    }
+  }
+
+  return capabilities;
+}
+
 export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps): Promise<void> {
   server.get("/api/health", async () => {
     const dbStats = deps.db.healthSnapshot();
@@ -261,12 +311,13 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
 
   server.post("/api/enroll", async (request, reply) => {
     const body = asEnrollBody(request.body);
-    if (!body.bootstrap_token || !constantTimeEqual(body.bootstrap_token, deps.config.agentBootstrapToken)) {
+    const bootstrapToken = asTrimmedString(body.bootstrap_token);
+    if (!bootstrapToken || !constantTimeEqual(bootstrapToken, deps.config.agentBootstrapToken)) {
       unauthorized(reply);
       return;
     }
 
-    const deviceId = body.device_id?.trim().toLowerCase() ?? "";
+    const deviceId = asTrimmedString(body.device_id).toLowerCase();
     if (!/^[a-z0-9_-]{2,32}$/.test(deviceId)) {
       reply.code(400).send({
         ok: false,
@@ -281,19 +332,17 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
     deps.db.enrollDevice({
       deviceId,
       tokenHash,
-      displayName: body.display_name?.slice(0, 80),
-      version: body.version?.slice(0, 40),
-      hostname: body.hostname?.slice(0, 120),
-      username: body.username?.slice(0, 120),
-      capabilities: Array.isArray(body.capabilities)
-        ? body.capabilities.filter((value): value is string => typeof value === "string").slice(0, 50)
-        : [],
+      displayName: normalizeOptionalText(body.display_name, 80),
+      version: normalizeOptionalText(body.version, 40),
+      hostname: normalizeOptionalText(body.hostname, 120),
+      username: normalizeOptionalText(body.username, 120),
+      capabilities: normalizeCapabilities(body.capabilities),
     });
 
     log("info", "Device enrolled", {
       device_id: deviceId,
-      hostname: body.hostname ?? null,
-      username: body.username ?? null,
+      hostname: normalizeOptionalText(body.hostname, 120) ?? null,
+      username: normalizeOptionalText(body.username, 120) ?? null,
     });
 
     reply.send({
@@ -313,7 +362,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
 
     const body = asUpdateBody(request.body);
     const requestId = normalizeRequestId(body.request_id);
-    const source = normalizeSource(body.source ?? "server-update");
+    const source = normalizeSource(asTrimmedString(body.source) || "server-update");
     const target = normalizeUpdateTarget(body.target);
     const version = normalizeUpdateVersion(body.version);
     const packageUrl = normalizeUpdatePackageUrl(body.package_url, deps.config.enforceHttpsUpdateUrl);
@@ -384,6 +433,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
 
     let sha256 = providedSha256;
     let packageSizeBytes = providedSizeBytes;
+    let resolvedPackageUrl = packageUrl;
     let hashSource: "provided" | "server_inspected" = providedSha256 ? "provided" : "server_inspected";
 
     if (!sha256) {
@@ -396,6 +446,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
         });
 
         sha256 = inspected.sha256;
+        resolvedPackageUrl = inspected.finalUrl;
         if (!packageSizeBytes) {
           packageSizeBytes = inspected.sizeBytes;
         }
@@ -415,7 +466,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       request_id: requestId,
       target,
       version,
-      package_url: packageUrl,
+      package_url: resolvedPackageUrl,
       hash_source: hashSource,
       package_size_bytes: packageSizeBytes ?? null,
     });
@@ -470,12 +521,12 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
         requestId,
         deviceId,
         source,
-        rawText: makeUpdateRawText(target, version, packageUrl),
+        rawText: makeUpdateRawText(target, version, resolvedPackageUrl),
         parsedTarget: target,
         parsedType: "AGENT_UPDATE",
         argsJson: JSON.stringify({
           version,
-          url: packageUrl,
+          url: resolvedPackageUrl,
           sha256,
           ...(packageSizeBytes ? { size_bytes: packageSizeBytes } : {}),
         }),
@@ -489,7 +540,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       type: "AGENT_UPDATE" as const,
       args: {
         version,
-        url: packageUrl,
+        url: resolvedPackageUrl,
         sha256,
         ...(packageSizeBytes ? { size_bytes: packageSizeBytes } : {}),
       },
@@ -519,7 +570,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
           parsed_type: "AGENT_UPDATE",
           message: result.message,
           version,
-          package_url: packageUrl,
+          package_url: resolvedPackageUrl,
           sha256,
           hash_source: hashSource,
           package_size_bytes: packageSizeBytes ?? null,
@@ -543,7 +594,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
           message: dispatch.message,
           error_code: dispatch.code,
           version,
-          package_url: packageUrl,
+          package_url: resolvedPackageUrl,
           sha256,
           hash_source: hashSource,
           package_size_bytes: packageSizeBytes ?? null,
@@ -579,7 +630,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       parsed_type: "AGENT_UPDATE",
       message: `Update dispatched ${okCount}/${total}`,
       version,
-      package_url: packageUrl,
+      package_url: resolvedPackageUrl,
       sha256,
       hash_source: hashSource,
       package_size_bytes: packageSizeBytes ?? null,
@@ -599,7 +650,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
     }
 
     const body = asCommandBody(request.body);
-    const rawText = body.text?.toString() ?? "";
+    const rawText = typeof body.text === "string" ? body.text : "";
     const text = rawText.trim();
     const requestId = normalizeRequestId(body.request_id);
     const source = normalizeSource(body.source);
