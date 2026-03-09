@@ -225,7 +225,7 @@ export function parseExternalCommand(text: string): ParsedExternalCommand | Pars
   const parts = normalizedText.split(" ");
   const target = parts[0] ?? "";
 
-  if (!/^(all|m[a-z0-9_-]{1,31})$/.test(target)) {
+  if (!/^(all|[a-z][a-z0-9_-]{1,31})$/.test(target)) {
     return {
       code: "UNKNOWN_TARGET",
       message: `Unknown target: ${target}`,

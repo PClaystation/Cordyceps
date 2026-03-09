@@ -128,6 +128,39 @@ Production:
 
 ## Agent Setup (Windows)
 
+### Fastest way to add another device (T1 agent)
+
+1. Build the T1 agent once (on any machine with Go):
+
+```bash
+cd t1
+go build -o t1-agent.exe ./cmd/t1
+```
+
+2. Copy `t1-agent.exe` and `t1/install-t1-agent.ps1` to the target Windows device.
+
+3. Run one command on the target device:
+
+```powershell
+.\install-t1-agent.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN"
+```
+
+That is it. If you omit `-DeviceId`, the server auto-assigns a unique designation like `t1`, `t2`, etc.
+
+Optional explicit designation:
+
+```powershell
+.\install-t1-agent.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN" -DeviceId "t7"
+```
+
+What the script does:
+
+- copies agent to `%LOCALAPPDATA%\T1Agent\t1-agent.exe`
+- starts enrollment with your server URL + bootstrap token
+- writes config to `%APPDATA%\T1Agent\config.json`
+
+### Manual setup (original agent)
+
 1. Install Go 1.23+ or build on another machine and copy exe
 2. Build:
 

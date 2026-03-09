@@ -36,6 +36,7 @@ interface EnrollRequestBody {
   hostname?: string;
   username?: string;
   capabilities?: string[];
+  designation_prefix?: string;
 }
 
 interface UpdateRequestBody {
@@ -72,6 +73,21 @@ function isPhoneAuthorized(request: FastifyRequest, config: AppConfig): boolean 
 
 function asTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+
+function normalizeDesignationPrefix(candidate: unknown): string {
+  const value = asTrimmedString(candidate).toLowerCase();
+  if (!value) {
+    return "";
+  }
+
+  const safeValue = value.replace(/[^a-z]/g, "");
+  if (!safeValue) {
+    return "";
+  }
+
+  return safeValue.slice(0, 4);
 }
 
 function normalizeRequestId(candidate: unknown): string {
@@ -178,7 +194,7 @@ function normalizeUpdateTarget(candidate: unknown): string {
 }
 
 function isValidTargetFormat(value: string): boolean {
-  return /^(all|m[a-z0-9_-]{1,31})$/.test(value);
+  return /^(all|[a-z][a-z0-9_-]{1,31})$/.test(value);
 }
 
 function normalizeUpdateVersion(candidate: unknown): string {
@@ -317,8 +333,10 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       return;
     }
 
-    const deviceId = asTrimmedString(body.device_id).toLowerCase();
-    if (!/^[a-z0-9_-]{2,32}$/.test(deviceId)) {
+    const inputDeviceId = asTrimmedString(body.device_id).toLowerCase();
+    const designationPrefix = normalizeDesignationPrefix(body.designation_prefix) || "m";
+
+    if (inputDeviceId && !/^[a-z0-9_-]{2,32}$/.test(inputDeviceId)) {
       reply.code(400).send({
         ok: false,
         message: "device_id must be 2-32 chars and use a-z, 0-9, _ or -",
@@ -328,16 +346,53 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
 
     const token = randomToken();
     const tokenHash = sha256Hex(token);
+    const displayName = normalizeOptionalText(body.display_name, 80);
+    const version = normalizeOptionalText(body.version, 40);
+    const hostname = normalizeOptionalText(body.hostname, 120);
+    const username = normalizeOptionalText(body.username, 120);
+    const capabilities = normalizeCapabilities(body.capabilities);
 
-    deps.db.enrollDevice({
-      deviceId,
-      tokenHash,
-      displayName: normalizeOptionalText(body.display_name, 80),
-      version: normalizeOptionalText(body.version, 40),
-      hostname: normalizeOptionalText(body.hostname, 120),
-      username: normalizeOptionalText(body.username, 120),
-      capabilities: normalizeCapabilities(body.capabilities),
-    });
+    let deviceId = inputDeviceId;
+    if (deviceId) {
+      deps.db.enrollDevice({
+        deviceId,
+        tokenHash,
+        displayName,
+        version,
+        hostname,
+        username,
+        capabilities,
+      });
+    } else {
+      const maxAttempts = 5;
+      let enrolled = false;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const candidateId = deps.db.allocateNextDeviceId(designationPrefix);
+        const created = deps.db.enrollDeviceIfAbsent({
+          deviceId: candidateId,
+          tokenHash,
+          displayName,
+          version,
+          hostname,
+          username,
+          capabilities,
+        });
+
+        if (created) {
+          deviceId = candidateId;
+          enrolled = true;
+          break;
+        }
+      }
+
+      if (!enrolled || !deviceId) {
+        reply.code(503).send({
+          ok: false,
+          message: "Unable to allocate device designation",
+        });
+        return;
+      }
+    }
 
     log("info", "Device enrolled", {
       device_id: deviceId,
@@ -372,7 +427,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       reply.code(400).send({
         ok: false,
         request_id: requestId,
-        message: "target must be a device id like m1 or all",
+        message: "target must be a device id like t1 or all",
         error_code: "INVALID_TARGET",
       });
       return;

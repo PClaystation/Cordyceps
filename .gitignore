@@ -23,3 +23,7 @@ DerivedData/
 *.xcuserstate
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
+
+# Binary/editor backup artifacts
+*.exe~
+t1/*.exe

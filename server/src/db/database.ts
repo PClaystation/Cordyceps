@@ -80,10 +80,25 @@ export class Database {
     `);
   }
 
-  public enrollDevice(input: EnrollDeviceInput): void {
+  private runEnrollStatement(input: EnrollDeviceInput, statement: { run: (params: Record<string, unknown>) => { changes: number } }): { changes: number } {
     const now = new Date().toISOString();
     const capabilitiesJson = JSON.stringify(input.capabilities ?? []);
 
+    return statement.run({
+      device_id: input.deviceId,
+      display_name: input.displayName ?? null,
+      auth_token_hash: input.tokenHash,
+      last_seen: now,
+      version: input.version ?? null,
+      hostname: input.hostname ?? null,
+      username: input.username ?? null,
+      capabilities_json: capabilitiesJson,
+      created_at: now,
+      updated_at: now,
+    });
+  }
+
+  public enrollDevice(input: EnrollDeviceInput): void {
     const statement = this.db.prepare(`
       INSERT INTO devices (
         device_id,
@@ -120,18 +135,66 @@ export class Database {
         updated_at = excluded.updated_at
     `);
 
-    statement.run({
-      device_id: input.deviceId,
-      display_name: input.displayName ?? null,
-      auth_token_hash: input.tokenHash,
-      last_seen: now,
-      version: input.version ?? null,
-      hostname: input.hostname ?? null,
-      username: input.username ?? null,
-      capabilities_json: capabilitiesJson,
-      created_at: now,
-      updated_at: now,
-    });
+    this.runEnrollStatement(input, statement);
+  }
+
+  public enrollDeviceIfAbsent(input: EnrollDeviceInput): boolean {
+    const statement = this.db.prepare(`
+      INSERT OR IGNORE INTO devices (
+        device_id,
+        display_name,
+        auth_token_hash,
+        status,
+        last_seen,
+        version,
+        hostname,
+        username,
+        capabilities_json,
+        created_at,
+        updated_at
+      ) VALUES (
+        @device_id,
+        @display_name,
+        @auth_token_hash,
+        'offline',
+        @last_seen,
+        @version,
+        @hostname,
+        @username,
+        @capabilities_json,
+        @created_at,
+        @updated_at
+      )
+    `);
+
+    const result = this.runEnrollStatement(input, statement);
+    return result.changes > 0;
+  }
+
+  public allocateNextDeviceId(prefix: string): string {
+    const normalizedPrefix = prefix.toLowerCase().replace(/[^a-z]/g, "").slice(0, 4) || "m";
+    const pattern = `${normalizedPrefix}%`;
+
+    const rows = this.db
+      .prepare("SELECT device_id FROM devices WHERE device_id LIKE ?")
+      .all(pattern) as Array<{ device_id: string }>;
+
+    let maxSuffix = 0;
+    const exactPrefixRegex = new RegExp(`^${normalizedPrefix}(\\d+)$`);
+    for (const row of rows) {
+      const deviceId = String(row.device_id || "").toLowerCase();
+      const match = deviceId.match(exactPrefixRegex);
+      if (!match) {
+        continue;
+      }
+
+      const value = Number.parseInt(match[1] ?? "", 10);
+      if (Number.isFinite(value) && value > maxSuffix) {
+        maxSuffix = value;
+      }
+    }
+
+    return `${normalizedPrefix}${maxSuffix + 1}`;
   }
 
   public isValidDeviceToken(deviceId: string, rawToken: string): boolean {
