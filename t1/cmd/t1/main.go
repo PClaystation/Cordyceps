@@ -7,11 +7,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -27,7 +29,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const defaultVersion = "0.1.0"
+var (
+	defaultVersion        = "0.1.0"
+	defaultServerURL      = ""
+	defaultBootstrapToken = ""
+)
 
 var errRestartRequested = errors.New("agent restart requested")
 
@@ -62,9 +68,9 @@ func main() {
 		runAgentFlag       bool
 	)
 
-	flag.StringVar(&serverURLFlag, "server-url", strings.TrimSpace(os.Getenv("JARVIS_SERVER_URL")), "Server base URL (e.g. https://jarvis.example)")
+	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("JARVIS_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://jarvis.example)")
 	flag.StringVar(&deviceIDFlag, "device-id", "", "Device ID (e.g. t1)")
-	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", strings.TrimSpace(os.Getenv("JARVIS_BOOTSTRAP_TOKEN")), "Bootstrap token for first-run enrollment")
+	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", resolveStringSetting("JARVIS_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")
 	flag.StringVar(&versionFlag, "version", defaultVersion, "Agent version string")
 	flag.StringVar(&configPathFlag, "config", "", "Path to agent config file")
 	flag.BoolVar(&enrollOnlyFlag, "enroll-only", false, "Enroll and exit")
@@ -78,6 +84,12 @@ func main() {
 	if execPathErr != nil {
 		log.Printf("warning: resolve executable path failed: %v", execPathErr)
 	} else {
+		if installed, err := installAndRelaunchIfNeeded(executablePath, os.Args[1:], foregroundFlag, runAgentFlag, enrollOnlyFlag); err != nil {
+			log.Printf("warning: self-install failed; continuing in current location: %v", err)
+		} else if installed {
+			return
+		}
+
 		if shouldRelaunchDetached(foregroundFlag, runAgentFlag, enrollOnlyFlag) {
 			args := relaunchArgs(os.Args[1:])
 			if err := background.RelaunchDetached(executablePath, args); err != nil {
@@ -526,12 +538,98 @@ func deriveWSURL(serverBaseURL string) (string, error) {
 	return parsed.String(), nil
 }
 
+func resolveStringSetting(envKey string, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
+		return value
+	}
+
+	return strings.TrimSpace(fallback)
+}
+
 func shouldRelaunchDetached(foreground bool, runAgent bool, enrollOnly bool) bool {
 	if runtime.GOOS != "windows" {
 		return false
 	}
 
 	return !foreground && !runAgent && !enrollOnly
+}
+
+func installAndRelaunchIfNeeded(executablePath string, args []string, foreground bool, runAgent bool, enrollOnly bool) (bool, error) {
+	if runtime.GOOS != "windows" || foreground || runAgent || enrollOnly {
+		return false, nil
+	}
+
+	installedPath, err := defaultInstalledExePath()
+	if err != nil {
+		return false, err
+	}
+
+	if sameWindowsPath(executablePath, installedPath) {
+		return false, nil
+	}
+
+	if err := copyExecutable(executablePath, installedPath); err != nil {
+		return false, err
+	}
+
+	relaunchPathArgs := relaunchArgs(args)
+	if err := background.RelaunchDetached(installedPath, relaunchPathArgs); err != nil {
+		return false, fmt.Errorf("launch installed agent: %w", err)
+	}
+
+	return true, nil
+}
+
+func defaultInstalledExePath() (string, error) {
+	localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
+	if localAppData == "" {
+		return "", errors.New("LOCALAPPDATA is not set")
+	}
+
+	return filepath.Join(localAppData, "T1Agent", "t1-agent.exe"), nil
+}
+
+func sameWindowsPath(left string, right string) bool {
+	leftClean := strings.ToLower(filepath.Clean(strings.TrimSpace(left)))
+	rightClean := strings.ToLower(filepath.Clean(strings.TrimSpace(right)))
+	return leftClean == rightClean
+}
+
+func copyExecutable(sourcePath string, destinationPath string) error {
+	if err := os.MkdirAll(filepath.Dir(destinationPath), 0o700); err != nil {
+		return fmt.Errorf("create install dir: %w", err)
+	}
+
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("open source executable: %w", err)
+	}
+	defer sourceFile.Close()
+
+	tempPath := destinationPath + ".tmp"
+	destinationFile, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
+	if err != nil {
+		return fmt.Errorf("create installed executable: %w", err)
+	}
+
+	if _, err := io.Copy(destinationFile, sourceFile); err != nil {
+		_ = destinationFile.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("copy executable: %w", err)
+	}
+
+	if err := destinationFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("close installed executable: %w", err)
+	}
+
+	_ = os.Remove(destinationPath)
+	if err := os.Rename(tempPath, destinationPath); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("activate installed executable: %w", err)
+	}
+
+	return nil
 }
 
 func relaunchArgs(args []string) []string {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 func EnsureStartupRegistration(executablePath string) error {
@@ -15,7 +16,7 @@ func EnsureStartupRegistration(executablePath string) error {
 		return fmt.Errorf("empty executable path")
 	}
 
-	taskCommand := fmt.Sprintf("\"%s\"", executablePath)
+	taskCommand := hiddenLaunchCommand(executablePath)
 	cmd := exec.Command(
 		"schtasks",
 		"/Create",
@@ -39,7 +40,7 @@ func EnsureStartupRegistration(executablePath string) error {
 }
 
 func ensureRunKey(executablePath string) error {
-	runValue := fmt.Sprintf("\"%s\"", executablePath)
+	runValue := hiddenLaunchCommand(executablePath)
 	cmd := exec.Command(
 		"reg",
 		"add",
@@ -58,4 +59,12 @@ func ensureRunKey(executablePath string) error {
 	}
 
 	return nil
+}
+
+func hiddenLaunchCommand(executablePath string) string {
+	escapedPath := strings.ReplaceAll(executablePath, "'", "''")
+	return fmt.Sprintf(
+		`powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command "Start-Process -WindowStyle Hidden -FilePath '%s' -ArgumentList '--run-agent'"`,
+		escapedPath,
+	)
 }

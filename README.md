@@ -130,34 +130,26 @@ Production:
 
 ### Fastest way to add another device (T1 agent)
 
-1. Build the T1 agent once (on any machine with Go):
+1. Build a USB-ready T1 agent once (on any machine with Go):
 
-```bash
+```powershell
 cd t1
-go build -o t1-agent.exe ./cmd/t1
+.\build-t1-usb.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN"
 ```
 
-2. Copy `t1-agent.exe` and `t1/install-t1-agent.ps1` to the target Windows device.
+This produces `t1/dist/t1-agent-usb.exe` with your server URL and bootstrap token embedded at build time.
 
-3. Run one command on the target device:
+2. Copy that EXE to a USB stick, move it to the target Windows device, and run it once.
 
-```powershell
-.\install-t1-agent.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN"
-```
+That is it. On first run the EXE:
 
-That is it. If you omit `-DeviceId`, the server auto-assigns a unique designation like `t1`, `t2`, etc.
-
-Optional explicit designation:
-
-```powershell
-.\install-t1-agent.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN" -DeviceId "t7"
-```
-
-What the script does:
-
-- copies agent to `%LOCALAPPDATA%\T1Agent\t1-agent.exe`
-- starts enrollment with your server URL + bootstrap token
+- copies itself to `%LOCALAPPDATA%\T1Agent\t1-agent.exe`
+- enrolls with the embedded server URL + bootstrap token
 - writes config to `%APPDATA%\T1Agent\config.json`
+- registers startup
+- relaunches hidden in the background
+
+If you still want the old PowerShell installer flow or an explicit `-DeviceId`, `t1/install-t1-agent.ps1` still works.
 
 ### Manual setup (original agent)
 
