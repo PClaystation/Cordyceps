@@ -3,6 +3,7 @@ package startup
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -63,8 +64,10 @@ func ensureRunKey(executablePath string) error {
 
 func hiddenLaunchCommand(executablePath string) string {
 	escapedPath := strings.ReplaceAll(executablePath, "'", "''")
+	escapedDir := strings.ReplaceAll(filepath.Dir(executablePath), "'", "''")
 	return fmt.Sprintf(
-		`powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command "Start-Process -WindowStyle Hidden -FilePath '%s' -ArgumentList '--run-agent'"`,
+		`powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command "Start-Process -WindowStyle Hidden -WorkingDirectory '%s' -FilePath '%s' -ArgumentList '--run-agent'"`,
+		escapedDir,
 		escapedPath,
 	)
 }

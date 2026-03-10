@@ -16,6 +16,7 @@ const detachedProcess = 0x00000008
 
 func RelaunchDetached(executablePath string, args []string) error {
 	cmd := exec.Command(executablePath, args...)
+	cmd.Dir = filepath.Dir(executablePath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | detachedProcess,
@@ -36,6 +37,7 @@ func RelaunchAfterParentExit(executablePath string, args []string) error {
 	}
 
 	cmd := exec.Command("cmd.exe", "/C", scriptPath)
+	cmd.Dir = filepath.Dir(executablePath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | detachedProcess,
@@ -56,7 +58,7 @@ func writeDelayedLaunchScript(executablePath string, args []string) (string, err
 		"@echo off",
 		"setlocal enableextensions",
 		"timeout /t 2 /nobreak >nul",
-		fmt.Sprintf("start \"\" /B \"%s\"%s", escapeCmdValue(executablePath), formatCmdArgs(args)),
+		fmt.Sprintf("start \"\" /D \"%s\" /B \"%s\"%s", escapeCmdValue(filepath.Dir(executablePath)), escapeCmdValue(executablePath), formatCmdArgs(args)),
 		"del /f /q \"%~f0\" >nul 2>&1",
 		"",
 	}

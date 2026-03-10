@@ -720,6 +720,10 @@ final class RemoteViewModel: ObservableObject {
       return argument.isEmpty ? "\(target) notify hello" : "\(target) notify \(argument)"
     }
 
+    if action == "clipboard" || action == "copy" {
+      return argument.isEmpty ? "\(target) \(action) copied from jarvis" : "\(target) \(action) \(argument)"
+    }
+
     if !argument.isEmpty, CommandLibrary.repeatableActions.contains(action) {
       return "\(target) \(action) \(argument)"
     }

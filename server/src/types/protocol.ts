@@ -11,7 +11,10 @@ export type CommandType =
   | "MUTE"
   | "LOCK_PC"
   | "NOTIFY"
+  | "CLIPBOARD_SET"
   | "SYSTEM_SLEEP"
+  | "SYSTEM_DISPLAY_OFF"
+  | "SYSTEM_SIGN_OUT"
   | "SYSTEM_SHUTDOWN"
   | "SYSTEM_RESTART"
   | "AGENT_UPDATE";

@@ -107,8 +107,14 @@ const COMMAND_LIBRARY = [
   { value: "open snipping tool", label: "open snipping tool", category: "Apps", keywords: ["snippingtool", "screenshot"] },
   { value: "lock", label: "lock", category: "Power", keywords: ["lock pc"] },
   { value: "lock pc", label: "lock pc", category: "Power", keywords: ["lock"] },
+  { value: "display off", label: "display off", category: "Power", keywords: ["screen off", "monitor off"] },
+  { value: "screen off", label: "screen off", category: "Power", keywords: ["display off", "monitor off"] },
+  { value: "monitor off", label: "monitor off", category: "Power", keywords: ["display off", "screen off"] },
   { value: "sleep", label: "sleep", category: "Power", keywords: ["sleep pc"] },
   { value: "sleep pc", label: "sleep pc", category: "Power", keywords: ["sleep"] },
+  { value: "sign out", label: "sign out", category: "Power", keywords: ["log out", "logout"] },
+  { value: "log out", label: "log out", category: "Power", keywords: ["sign out", "logout"] },
+  { value: "logout", label: "logout", category: "Power", keywords: ["sign out", "log out"] },
   { value: "shutdown", label: "shutdown", category: "Power", keywords: ["shut down", "shutdown pc"] },
   { value: "shut down", label: "shut down", category: "Power", keywords: ["shutdown"] },
   { value: "shutdown pc", label: "shutdown pc", category: "Power", keywords: ["shutdown"] },
@@ -116,6 +122,8 @@ const COMMAND_LIBRARY = [
   { value: "reboot", label: "reboot", category: "Power", keywords: ["restart"] },
   { value: "restart pc", label: "restart pc", category: "Power", keywords: ["restart"] },
   { value: "notify", label: "notify (requires message)", category: "Messaging", keywords: ["alert", "notification"] },
+  { value: "clipboard", label: "clipboard (requires text)", category: "Messaging", keywords: ["copy", "copy text"] },
+  { value: "copy", label: "copy (requires text)", category: "Messaging", keywords: ["clipboard", "copy text"] },
 ];
 
 const COMMAND_LIBRARY_INDEX = COMMAND_LIBRARY.map((entry) => {
@@ -147,7 +155,7 @@ const REPEATABLE_ACTIONS = new Set([
   "prev",
   "back",
 ]);
-const dangerousActions = new Set(["shutdown", "shut down", "shutdown pc", "restart", "reboot", "restart pc", "sleep", "sleep pc"]);
+const dangerousActions = new Set(["shutdown", "shut down", "shutdown pc", "restart", "reboot", "restart pc", "sleep", "sleep pc", "sign out", "log out", "logout"]);
 
 let pollTimer = null;
 
@@ -526,6 +534,10 @@ function composeCommand() {
 
   if (action === "notify") {
     return arg ? `${target} notify ${arg}` : `${target} notify hello`;
+  }
+
+  if (action === "clipboard" || action === "copy") {
+    return arg ? `${target} ${action} ${arg}` : `${target} ${action} copied from jarvis`;
   }
 
   if (arg && REPEATABLE_ACTIONS.has(action)) {

@@ -142,12 +142,16 @@ struct CommandLibraryEntry: Identifiable, Hashable {
   }
 
   var usesArgument: Bool {
-    normalizedValue == "notify" || CommandLibrary.repeatableActions.contains(normalizedValue)
+    normalizedValue == "notify" || normalizedValue == "clipboard" || normalizedValue == "copy" || CommandLibrary.repeatableActions.contains(normalizedValue)
   }
 
   var placeholderArgument: String {
     if normalizedValue == "notify" {
       return "hello"
+    }
+
+    if normalizedValue == "clipboard" || normalizedValue == "copy" {
+      return "copied from jarvis"
     }
 
     if CommandLibrary.repeatableActions.contains(normalizedValue) {
@@ -217,8 +221,14 @@ enum CommandLibrary {
     .init(value: "open snipping tool", label: "open snipping tool", category: "Apps", keywords: ["snippingtool", "screenshot"]),
     .init(value: "lock", label: "lock", category: "Power", keywords: ["lock pc"]),
     .init(value: "lock pc", label: "lock pc", category: "Power", keywords: ["lock"]),
+    .init(value: "display off", label: "display off", category: "Power", keywords: ["screen off", "monitor off"]),
+    .init(value: "screen off", label: "screen off", category: "Power", keywords: ["display off", "monitor off"]),
+    .init(value: "monitor off", label: "monitor off", category: "Power", keywords: ["display off", "screen off"]),
     .init(value: "sleep", label: "sleep", category: "Power", keywords: ["sleep pc"]),
     .init(value: "sleep pc", label: "sleep pc", category: "Power", keywords: ["sleep"]),
+    .init(value: "sign out", label: "sign out", category: "Power", keywords: ["log out", "logout"]),
+    .init(value: "log out", label: "log out", category: "Power", keywords: ["sign out", "logout"]),
+    .init(value: "logout", label: "logout", category: "Power", keywords: ["sign out", "log out"]),
     .init(value: "shutdown", label: "shutdown", category: "Power", keywords: ["shut down", "shutdown pc"]),
     .init(value: "shut down", label: "shut down", category: "Power", keywords: ["shutdown"]),
     .init(value: "shutdown pc", label: "shutdown pc", category: "Power", keywords: ["shutdown"]),
@@ -226,6 +236,8 @@ enum CommandLibrary {
     .init(value: "reboot", label: "reboot", category: "Power", keywords: ["restart"]),
     .init(value: "restart pc", label: "restart pc", category: "Power", keywords: ["restart"]),
     .init(value: "notify", label: "notify (requires message)", category: "Messaging", keywords: ["alert", "notification"]),
+    .init(value: "clipboard", label: "clipboard (requires text)", category: "Messaging", keywords: ["copy", "copy text"]),
+    .init(value: "copy", label: "copy (requires text)", category: "Messaging", keywords: ["clipboard", "copy text"]),
   ]
 
   static let knownActionValues = Set(entries.map { $0.normalizedValue })
@@ -256,6 +268,9 @@ enum CommandLibrary {
     "restart pc",
     "sleep",
     "sleep pc",
+    "sign out",
+    "log out",
+    "logout",
   ]
 
   static let quickActions: [String] = [

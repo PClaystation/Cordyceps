@@ -94,8 +94,14 @@ func Save(path string, cfg *Config) error {
 		return fmt.Errorf("serialize config: %w", err)
 	}
 
-	if err := os.WriteFile(path, payload, 0o600); err != nil {
-		return fmt.Errorf("write config: %w", err)
+	tempPath := path + ".tmp"
+	if err := os.WriteFile(tempPath, payload, 0o600); err != nil {
+		return fmt.Errorf("write temp config: %w", err)
+	}
+
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("replace config: %w", err)
 	}
 
 	return nil

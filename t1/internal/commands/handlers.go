@@ -13,6 +13,7 @@ import (
 )
 
 const commandTimeout = 8 * time.Second
+const maxClipboardTextLength = 1000
 
 var openAppTargets = map[string]string{
 	"spotify":      "spotify:",
@@ -41,9 +42,12 @@ func Capabilities() []string {
 	return []string{
 		"media_control",
 		"notifications",
+		"clipboard_control",
+		"display_control",
 		"locking",
 		"open_app",
 		"power_control",
+		"session_control",
 		"updater",
 	}
 }
@@ -211,6 +215,19 @@ func Execute(deviceID string, version string, command protocol.CommandEnvelope) 
 		result.OK = true
 		result.Message = "Notification shown"
 		return result
+	case "CLIPBOARD_SET":
+		text, err := readStringArg(command.Args, "text")
+		if err != nil {
+			return handleErr(err, "INVALID_ARGS")
+		}
+
+		if err := setClipboard(text); err != nil {
+			return handleErr(err, "CLIPBOARD_FAILED")
+		}
+
+		result.OK = true
+		result.Message = "Clipboard updated"
+		return result
 	case "SYSTEM_SLEEP":
 		if err := sleepPC(); err != nil {
 			return handleErr(err, "POWER_FAILED")
@@ -218,6 +235,22 @@ func Execute(deviceID string, version string, command protocol.CommandEnvelope) 
 
 		result.OK = true
 		result.Message = "Sleep command scheduled"
+		return result
+	case "SYSTEM_DISPLAY_OFF":
+		if err := displayOff(); err != nil {
+			return handleErr(err, "POWER_FAILED")
+		}
+
+		result.OK = true
+		result.Message = "Display turned off"
+		return result
+	case "SYSTEM_SIGN_OUT":
+		if err := signOut(); err != nil {
+			return handleErr(err, "POWER_FAILED")
+		}
+
+		result.OK = true
+		result.Message = "Sign out started"
 		return result
 	case "SYSTEM_SHUTDOWN":
 		if err := shutdownPC(); err != nil {
@@ -311,6 +344,7 @@ func openApp(app string) error {
 	}
 
 	cmd := exec.Command("cmd", "/C", "start", "", target)
+	configureHiddenProcess(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("launch %s: %w", app, err)
 	}
@@ -353,6 +387,7 @@ func sleepPC() error {
 	}
 
 	cmd := exec.Command("cmd", "/C", "start", "", "cmd", "/C", "timeout /t 2 /nobreak >nul & rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
+	configureHiddenProcess(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("schedule sleep: %w", err)
 	}
@@ -419,7 +454,56 @@ func notify(text string) error {
 	return nil
 }
 
+func setClipboard(text string) error {
+	if runtime.GOOS != "windows" {
+		return errors.New("CLIPBOARD_SET is supported only on Windows")
+	}
+
+	if len(text) > maxClipboardTextLength {
+		return fmt.Errorf("clipboard text too long (max %d)", maxClipboardTextLength)
+	}
+
+	escaped := strings.ReplaceAll(text, "'", "''")
+	script := fmt.Sprintf("Set-Clipboard -Value '%s'", escaped)
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script)
+
+	if err := runWithTimeout(cmd, commandTimeout); err != nil {
+		return fmt.Errorf("set clipboard: %w", err)
+	}
+
+	return nil
+}
+
+func displayOff() error {
+	if runtime.GOOS != "windows" {
+		return errors.New("SYSTEM_DISPLAY_OFF is supported only on Windows")
+	}
+
+	script := "$signature = '[DllImport(\"user32.dll\")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);'; Add-Type -MemberDefinition $signature -Name NativeMethods -Namespace Jarvis | Out-Null; [void][Jarvis.NativeMethods]::SendMessage([IntPtr]0xffff, 0x0112, [IntPtr]0xF170, [IntPtr]2)"
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script)
+
+	if err := runWithTimeout(cmd, commandTimeout); err != nil {
+		return fmt.Errorf("turn display off: %w", err)
+	}
+
+	return nil
+}
+
+func signOut() error {
+	if runtime.GOOS != "windows" {
+		return errors.New("SYSTEM_SIGN_OUT is supported only on Windows")
+	}
+
+	cmd := exec.Command("shutdown.exe", "/l")
+	if err := runWithTimeout(cmd, commandTimeout); err != nil {
+		return fmt.Errorf("sign out: %w", err)
+	}
+
+	return nil
+}
+
 func runWithTimeout(cmd *exec.Cmd, timeout time.Duration) error {
+	configureHiddenProcess(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}

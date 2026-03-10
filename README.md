@@ -31,7 +31,8 @@ Phone-driven remote command system:
   - `VOLUME_UP`, `VOLUME_DOWN`, `MUTE`
   - `LOCK_PC`
   - `NOTIFY`
-  - `SYSTEM_SLEEP`, `SYSTEM_SHUTDOWN`, `SYSTEM_RESTART`
+  - `CLIPBOARD_SET`
+  - `SYSTEM_SLEEP`, `SYSTEM_DISPLAY_OFF`, `SYSTEM_SIGN_OUT`, `SYSTEM_SHUTDOWN`, `SYSTEM_RESTART`
   - `AGENT_UPDATE` (via `POST /api/update`)
 
 ## Repository Layout
@@ -55,6 +56,9 @@ Examples:
 - `m2 volume up`
 - `m2 volume down 4`
 - `m3 lock`
+- `m1 clipboard copied from jarvis`
+- `m1 display off`
+- `m1 sign out`
 - `m1 open vscode`
 - `m1 open task manager`
 - `m1 open terminal`
@@ -151,6 +155,11 @@ That is it. On first run the EXE:
 
 If you still want the old PowerShell installer flow or an explicit `-DeviceId`, `t1/install-t1-agent.ps1` still works.
 
+Management:
+
+- `.\manage-t1-agent.ps1 -Action status`
+- `.\manage-t1-agent.ps1 -Action uninstall`
+
 ### Manual setup (original agent)
 
 1. Install Go 1.23+ or build on another machine and copy exe
@@ -182,6 +191,17 @@ What first run does:
 Default config path on Windows:
 
 - `%APPDATA%\JarvisAgent\config.json`
+
+Optional installer script:
+
+```powershell
+.\install-jarvis-agent.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN" -DeviceId "m1"
+```
+
+Management:
+
+- `.\manage-jarvis-agent.ps1 -Action status`
+- `.\manage-jarvis-agent.ps1 -Action uninstall`
 
 ## iPhone Shortcut
 

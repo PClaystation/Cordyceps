@@ -23,6 +23,7 @@ import (
 	"github.com/charliearnerstal/jarvis/t1/internal/background"
 	"github.com/charliearnerstal/jarvis/t1/internal/commands"
 	"github.com/charliearnerstal/jarvis/t1/internal/config"
+	"github.com/charliearnerstal/jarvis/t1/internal/instance"
 	"github.com/charliearnerstal/jarvis/t1/internal/protocol"
 	"github.com/charliearnerstal/jarvis/t1/internal/startup"
 	"github.com/charliearnerstal/jarvis/t1/internal/updater"
@@ -36,6 +37,8 @@ var (
 )
 
 var errRestartRequested = errors.New("agent restart requested")
+
+const startupRefreshInterval = 6 * time.Hour
 
 type enrollRequest struct {
 	BootstrapToken    string   `json:"bootstrap_token"`
@@ -79,6 +82,7 @@ func main() {
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC)
+	configureLogging(foregroundFlag, enrollOnlyFlag)
 
 	executablePath, execPathErr := os.Executable()
 	if execPathErr != nil {
@@ -108,6 +112,20 @@ func main() {
 			log.Fatalf("resolve config path: %v", err)
 		}
 	}
+
+	instanceLock, err := instance.Acquire(cfgPath)
+	if err != nil {
+		if errors.Is(err, instance.ErrAlreadyRunning) {
+			log.Printf("agent already running for config %s", cfgPath)
+			return
+		}
+		log.Fatalf("acquire instance lock: %v", err)
+	}
+	defer func() {
+		if releaseErr := instanceLock.Release(); releaseErr != nil {
+			log.Printf("warning: release instance lock failed: %v", releaseErr)
+		}
+	}()
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -158,6 +176,10 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	if execPathErr == nil {
+		go maintainStartupRegistration(ctx, executablePath)
+	}
 
 	runLoop(ctx, cfg, cfgPath)
 }
@@ -289,7 +311,7 @@ func runLoop(ctx context.Context, cfg *config.Config, cfgPath string) {
 		default:
 		}
 
-		err := runSession(ctx, cfg, cfgPath)
+		err := safeRunSession(ctx, cfg, cfgPath)
 		if err == nil {
 			return
 		}
@@ -538,6 +560,16 @@ func deriveWSURL(serverBaseURL string) (string, error) {
 	return parsed.String(), nil
 }
 
+func safeRunSession(ctx context.Context, cfg *config.Config, cfgPath string) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("session panic recovered: %v", recovered)
+		}
+	}()
+
+	return runSession(ctx, cfg, cfgPath)
+}
+
 func resolveStringSetting(envKey string, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
 		return value
@@ -657,4 +689,26 @@ func isFlag(arg string, name string) bool {
 		trimmed == short ||
 		strings.HasPrefix(trimmed, long+"=") ||
 		strings.HasPrefix(trimmed, short+"=")
+}
+
+func configureLogging(foreground bool, enrollOnly bool) {
+	if runtime.GOOS == "windows" && !foreground && !enrollOnly {
+		log.SetOutput(io.Discard)
+	}
+}
+
+func maintainStartupRegistration(ctx context.Context, executablePath string) {
+	ticker := time.NewTicker(startupRefreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := startup.EnsureStartupRegistration(executablePath); err != nil {
+				log.Printf("warning: periodic startup registration failed: %v", err)
+			}
+		}
+	}
 }

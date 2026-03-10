@@ -1,6 +1,7 @@
 import type { CommandType, ParseError, ParsedExternalCommand, TypedCommand } from "../types/protocol";
 
 const MAX_NOTIFY_TEXT_LENGTH = 180;
+const MAX_CLIPBOARD_TEXT_LENGTH = 1000;
 const MAX_REPEAT_STEPS = 20;
 
 const OPEN_APP_ALIASES: Record<string, string> = {
@@ -55,6 +56,12 @@ const EXACT_COMMANDS: Record<string, CommandType> = {
   "lock pc": "LOCK_PC",
   sleep: "SYSTEM_SLEEP",
   "sleep pc": "SYSTEM_SLEEP",
+  "display off": "SYSTEM_DISPLAY_OFF",
+  "screen off": "SYSTEM_DISPLAY_OFF",
+  "monitor off": "SYSTEM_DISPLAY_OFF",
+  logout: "SYSTEM_SIGN_OUT",
+  "log out": "SYSTEM_SIGN_OUT",
+  "sign out": "SYSTEM_SIGN_OUT",
   shutdown: "SYSTEM_SHUTDOWN",
   "shut down": "SYSTEM_SHUTDOWN",
   "shutdown pc": "SYSTEM_SHUTDOWN",
@@ -181,6 +188,43 @@ function parseNotify(commandPhrase: string): TypedCommand | ParseError | null {
   };
 }
 
+function parseClipboard(commandPhrase: string): TypedCommand | ParseError | null {
+  if (commandPhrase === "clipboard" || commandPhrase === "copy") {
+    return {
+      code: "MALFORMED_ARGUMENT",
+      message: "clipboard requires text",
+    };
+  }
+
+  let text = "";
+  if (commandPhrase.startsWith("clipboard ")) {
+    text = commandPhrase.slice("clipboard ".length).trim();
+  } else if (commandPhrase.startsWith("copy ")) {
+    text = commandPhrase.slice("copy ".length).trim();
+  } else {
+    return null;
+  }
+
+  if (!text) {
+    return {
+      code: "MALFORMED_ARGUMENT",
+      message: "clipboard requires text",
+    };
+  }
+
+  if (text.length > MAX_CLIPBOARD_TEXT_LENGTH) {
+    return {
+      code: "MALFORMED_ARGUMENT",
+      message: `clipboard text too long (max ${MAX_CLIPBOARD_TEXT_LENGTH})`,
+    };
+  }
+
+  return {
+    type: "CLIPBOARD_SET",
+    args: { text },
+  };
+}
+
 function parseCommandPhrase(commandPhrase: string): TypedCommand | ParseError {
   const repeatCommand =
     parseRepeatSteps(commandPhrase, ["volume up", "vol up", "louder", "volume higher"], "VOLUME_UP") ??
@@ -204,6 +248,11 @@ function parseCommandPhrase(commandPhrase: string): TypedCommand | ParseError {
   const notifyCommand = parseNotify(commandPhrase);
   if (notifyCommand) {
     return notifyCommand;
+  }
+
+  const clipboardCommand = parseClipboard(commandPhrase);
+  if (clipboardCommand) {
+    return clipboardCommand;
   }
 
   return {
