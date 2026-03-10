@@ -13,36 +13,42 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/charliearnerstal/cordyceps/agent/internal/background"
-	"github.com/charliearnerstal/cordyceps/agent/internal/commands"
-	"github.com/charliearnerstal/cordyceps/agent/internal/config"
-	"github.com/charliearnerstal/cordyceps/agent/internal/instance"
-	"github.com/charliearnerstal/cordyceps/agent/internal/protocol"
-	"github.com/charliearnerstal/cordyceps/agent/internal/startup"
-	"github.com/charliearnerstal/cordyceps/agent/internal/updater"
+	"github.com/charliearnerstal/jarvis/e1/internal/background"
+	"github.com/charliearnerstal/jarvis/e1/internal/commands"
+	"github.com/charliearnerstal/jarvis/e1/internal/config"
+	"github.com/charliearnerstal/jarvis/e1/internal/instance"
+	"github.com/charliearnerstal/jarvis/e1/internal/protocol"
+	"github.com/charliearnerstal/jarvis/e1/internal/startup"
+	"github.com/charliearnerstal/jarvis/e1/internal/updater"
 	"github.com/gorilla/websocket"
 )
 
-const defaultVersion = "0.1.0"
+var (
+	defaultVersion        = "0.1.0"
+	defaultServerURL      = ""
+	defaultBootstrapToken = ""
+)
 
 var errRestartRequested = errors.New("agent restart requested")
 
 const startupRefreshInterval = 6 * time.Hour
 
 type enrollRequest struct {
-	BootstrapToken string   `json:"bootstrap_token"`
-	DeviceID       string   `json:"device_id"`
-	DisplayName    string   `json:"display_name,omitempty"`
-	Version        string   `json:"version"`
-	Hostname       string   `json:"hostname"`
-	Username       string   `json:"username"`
-	Capabilities   []string `json:"capabilities"`
+	BootstrapToken    string   `json:"bootstrap_token"`
+	DeviceID          string   `json:"device_id,omitempty"`
+	DesignationPrefix string   `json:"designation_prefix,omitempty"`
+	DisplayName       string   `json:"display_name,omitempty"`
+	Version           string   `json:"version"`
+	Hostname          string   `json:"hostname"`
+	Username          string   `json:"username"`
+	Capabilities      []string `json:"capabilities"`
 }
 
 type enrollResponse struct {
@@ -65,9 +71,9 @@ func main() {
 		runAgentFlag       bool
 	)
 
-	flag.StringVar(&serverURLFlag, "server-url", strings.TrimSpace(os.Getenv("CORDYCEPS_SERVER_URL")), "Server base URL (e.g. https://cordyceps.example)")
-	flag.StringVar(&deviceIDFlag, "device-id", "", "Device ID (e.g. m1)")
-	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", strings.TrimSpace(os.Getenv("CORDYCEPS_BOOTSTRAP_TOKEN")), "Bootstrap token for first-run enrollment")
+	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("E1_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://cordyceps.example)")
+	flag.StringVar(&deviceIDFlag, "device-id", "", "Device ID (e.g. e1)")
+	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", resolveStringSetting("E1_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")
 	flag.StringVar(&versionFlag, "version", defaultVersion, "Agent version string")
 	flag.StringVar(&configPathFlag, "config", "", "Path to agent config file")
 	flag.BoolVar(&enrollOnlyFlag, "enroll-only", false, "Enroll and exit")
@@ -82,6 +88,12 @@ func main() {
 	if execPathErr != nil {
 		log.Printf("warning: resolve executable path failed: %v", execPathErr)
 	} else {
+		if installed, err := installAndRelaunchIfNeeded(executablePath, os.Args[1:], foregroundFlag, runAgentFlag, enrollOnlyFlag); err != nil {
+			log.Printf("warning: self-install failed; continuing in current location: %v", err)
+		} else if installed {
+			return
+		}
+
 		if shouldRelaunchDetached(foregroundFlag, runAgentFlag, enrollOnlyFlag) {
 			args := relaunchArgs(os.Args[1:])
 			if err := background.RelaunchDetached(executablePath, args); err != nil {
@@ -174,11 +186,11 @@ func main() {
 
 func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, bootstrapToken string, version string) (*config.Config, error) {
 	if serverBaseURL == "" {
-		return nil, errors.New("missing server URL; pass --server-url or set CORDYCEPS_SERVER_URL")
+		return nil, errors.New("missing server URL; pass --server-url or set E1_SERVER_URL")
 	}
 
 	if bootstrapToken == "" {
-		return nil, errors.New("missing bootstrap token; pass --bootstrap-token or set CORDYCEPS_BOOTSTRAP_TOKEN")
+		return nil, errors.New("missing bootstrap token; pass --bootstrap-token or set E1_BOOTSTRAP_TOKEN")
 	}
 
 	hostname, _ := os.Hostname()
@@ -196,23 +208,29 @@ func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, 
 	}
 
 	deviceID := config.SanitizeDeviceID(deviceIDInput)
-	if strings.TrimSpace(deviceIDInput) == "" {
-		deviceID = config.SanitizeDeviceID(hostname)
-	}
-	if !strings.HasPrefix(deviceID, "m") {
-		deviceID = config.SanitizeDeviceID("m-" + deviceID)
+	autoDesignate := strings.TrimSpace(deviceIDInput) == ""
+	if autoDesignate {
+		deviceID = ""
+	} else if !strings.HasPrefix(deviceID, "e") {
+		deviceID = config.SanitizeDeviceID("e-" + deviceID)
 	}
 
 	base := normalizeBaseURL(serverBaseURL)
 
+	displayName := deviceID
+	if autoDesignate {
+		displayName = "e-agent"
+	}
+
 	requestPayload := enrollRequest{
-		BootstrapToken: bootstrapToken,
-		DeviceID:       deviceID,
-		DisplayName:    deviceID,
-		Version:        version,
-		Hostname:       hostname,
-		Username:       username,
-		Capabilities:   commands.Capabilities(),
+		BootstrapToken:    bootstrapToken,
+		DeviceID:          deviceID,
+		DesignationPrefix: "e",
+		DisplayName:       displayName,
+		Version:           version,
+		Hostname:          hostname,
+		Username:          username,
+		Capabilities:      commands.Capabilities(),
 	}
 
 	payload, err := json.Marshal(requestPayload)
@@ -318,16 +336,6 @@ func runLoop(ctx context.Context, cfg *config.Config, cfgPath string) {
 			}
 		}
 	}
-}
-
-func safeRunSession(ctx context.Context, cfg *config.Config, cfgPath string) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("session panic recovered: %v", recovered)
-		}
-	}()
-
-	return runSession(ctx, cfg, cfgPath)
 }
 
 func runSession(ctx context.Context, cfg *config.Config, cfgPath string) error {
@@ -552,12 +560,108 @@ func deriveWSURL(serverBaseURL string) (string, error) {
 	return parsed.String(), nil
 }
 
+func safeRunSession(ctx context.Context, cfg *config.Config, cfgPath string) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("session panic recovered: %v", recovered)
+		}
+	}()
+
+	return runSession(ctx, cfg, cfgPath)
+}
+
+func resolveStringSetting(envKey string, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
+		return value
+	}
+
+	return strings.TrimSpace(fallback)
+}
+
 func shouldRelaunchDetached(foreground bool, runAgent bool, enrollOnly bool) bool {
 	if runtime.GOOS != "windows" {
 		return false
 	}
 
 	return !foreground && !runAgent && !enrollOnly
+}
+
+func installAndRelaunchIfNeeded(executablePath string, args []string, foreground bool, runAgent bool, enrollOnly bool) (bool, error) {
+	if runtime.GOOS != "windows" || foreground || runAgent || enrollOnly {
+		return false, nil
+	}
+
+	installedPath, err := defaultInstalledExePath()
+	if err != nil {
+		return false, err
+	}
+
+	if sameWindowsPath(executablePath, installedPath) {
+		return false, nil
+	}
+
+	if err := copyExecutable(executablePath, installedPath); err != nil {
+		return false, err
+	}
+
+	relaunchPathArgs := relaunchArgs(args)
+	if err := background.RelaunchAfterParentExit(installedPath, relaunchPathArgs); err != nil {
+		return false, fmt.Errorf("launch installed agent: %w", err)
+	}
+
+	return true, nil
+}
+
+func defaultInstalledExePath() (string, error) {
+	localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
+	if localAppData == "" {
+		return "", errors.New("LOCALAPPDATA is not set")
+	}
+
+	return filepath.Join(localAppData, "E1Agent", "e1-agent.exe"), nil
+}
+
+func sameWindowsPath(left string, right string) bool {
+	leftClean := strings.ToLower(filepath.Clean(strings.TrimSpace(left)))
+	rightClean := strings.ToLower(filepath.Clean(strings.TrimSpace(right)))
+	return leftClean == rightClean
+}
+
+func copyExecutable(sourcePath string, destinationPath string) error {
+	if err := os.MkdirAll(filepath.Dir(destinationPath), 0o700); err != nil {
+		return fmt.Errorf("create install dir: %w", err)
+	}
+
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("open source executable: %w", err)
+	}
+	defer sourceFile.Close()
+
+	tempPath := destinationPath + ".tmp"
+	destinationFile, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
+	if err != nil {
+		return fmt.Errorf("create installed executable: %w", err)
+	}
+
+	if _, err := io.Copy(destinationFile, sourceFile); err != nil {
+		_ = destinationFile.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("copy executable: %w", err)
+	}
+
+	if err := destinationFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("close installed executable: %w", err)
+	}
+
+	_ = os.Remove(destinationPath)
+	if err := os.Rename(tempPath, destinationPath); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("activate installed executable: %w", err)
+	}
+
+	return nil
 }
 
 func relaunchArgs(args []string) []string {

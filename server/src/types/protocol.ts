@@ -17,6 +17,7 @@ export type CommandType =
   | "SYSTEM_SIGN_OUT"
   | "SYSTEM_SHUTDOWN"
   | "SYSTEM_RESTART"
+  | "EMERGENCY_LOCKDOWN"
   | "AGENT_UPDATE";
 
 export interface TypedCommand {

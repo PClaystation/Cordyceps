@@ -117,6 +117,14 @@ function normalizeSource(candidate: unknown): string {
   return safeValue.slice(0, MAX_SOURCE_LEN);
 }
 
+function requiredCapabilityForCommand(type: string): string | null {
+  if (type === "EMERGENCY_LOCKDOWN") {
+    return "emergency_lockdown";
+  }
+
+  return null;
+}
+
 function parseDispatchError(error: unknown): { code: string; message: string; httpStatus: number } {
   if (!(error instanceof DispatchError)) {
     const message = error instanceof Error ? error.message : "Unknown routing error";
@@ -764,6 +772,8 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       return;
     }
 
+    const requiredCapability = requiredCapabilityForCommand(parsed.command.type);
+
     for (const deviceId of targetDeviceIds) {
       const knownDevice = deps.db.getDevice(deviceId) ?? deps.registry.get(deviceId);
       if (!knownDevice) {
@@ -783,6 +793,16 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
           request_id: requestId,
           message: `${deviceId} is offline`,
           error_code: "DEVICE_OFFLINE",
+        });
+        return;
+      }
+
+      if (requiredCapability && !connected.capabilities.includes(requiredCapability)) {
+        reply.code(409).send({
+          ok: false,
+          request_id: requestId,
+          message: `${deviceId} does not support ${parsed.command.type.toLowerCase()} yet`,
+          error_code: "COMMAND_NOT_SUPPORTED",
         });
         return;
       }

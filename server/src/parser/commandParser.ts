@@ -69,6 +69,8 @@ const VOLUME_DOWN_PREFIXES = [
 
 const MEDIA_NEXT_PREFIXES = ["next track", "skip track", "next", "skip"];
 const MEDIA_PREVIOUS_PREFIXES = ["previous track", "previous", "prev", "back"];
+const EMERGENCY_BASE_PHRASES = ["panic", "panic mode", "lockdown", "emergency", "emergency mode"];
+const EMERGENCY_CONFIRM_SUFFIXES = ["confirm", "confirmed"];
 
 const OPEN_APP_ALIASES: Record<string, string> = {
   spotify: "spotify",
@@ -370,6 +372,30 @@ function parseClipboard(commandPhrase: string): TypedCommand | ParseError | null
   };
 }
 
+function parseEmergencyLockdown(commandPhrase: string): TypedCommand | ParseError | null {
+  const normalizedPhrase = stripTrailingPunctuation(stripPoliteSuffix(commandPhrase));
+  if (!normalizedPhrase) {
+    return null;
+  }
+
+  for (const phrase of EMERGENCY_BASE_PHRASES) {
+    if (normalizedPhrase === phrase) {
+      return {
+        code: "MALFORMED_ARGUMENT",
+        message: `${phrase} requires explicit confirmation (use: ${phrase} confirm)`,
+      };
+    }
+
+    for (const suffix of EMERGENCY_CONFIRM_SUFFIXES) {
+      if (normalizedPhrase === `${phrase} ${suffix}`) {
+        return buildNoArgCommand("EMERGENCY_LOCKDOWN");
+      }
+    }
+  }
+
+  return null;
+}
+
 function parseCommandPhrase(commandPhrase: string): TypedCommand | ParseError {
   const normalizedPhrase = normalizeCommandPhrase(commandPhrase);
 
@@ -380,6 +406,11 @@ function parseCommandPhrase(commandPhrase: string): TypedCommand | ParseError {
     parseRepeatSteps(normalizedPhrase, MEDIA_PREVIOUS_PREFIXES, "MEDIA_PREVIOUS");
   if (repeatCommand) {
     return repeatCommand;
+  }
+
+  const emergencyCommand = parseEmergencyLockdown(normalizedPhrase);
+  if (emergencyCommand) {
+    return emergencyCommand;
   }
 
   const exactType = EXACT_COMMANDS[stripTrailingPunctuation(stripPoliteSuffix(normalizedPhrase))];

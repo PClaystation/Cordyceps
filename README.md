@@ -33,12 +33,15 @@ Phone-driven remote command system:
   - `NOTIFY`
   - `CLIPBOARD_SET`
   - `SYSTEM_SLEEP`, `SYSTEM_DISPLAY_OFF`, `SYSTEM_SIGN_OUT`, `SYSTEM_SHUTDOWN`, `SYSTEM_RESTART`
+  - `EMERGENCY_LOCKDOWN` (implemented in `e1` agent family only)
   - `AGENT_UPDATE` (via `POST /api/update`)
 
 ## Repository Layout
 
 - `server/` Node.js + TypeScript dispatcher
 - `agent/` Go Windows agent (single binary)
+- `t1/` Go Windows agent family (`t*` device IDs)
+- `e1/` Go Windows agent family (`e*` device IDs, includes emergency lockdown command)
 - `docs/iphone-shortcut.md` iPhone Shortcut wiring
 
 ## Command Language (Phone -> Server)
@@ -64,6 +67,7 @@ Examples:
 - `m1 open terminal`
 - `m1 open powershell`
 - `m1 restart`
+- `e1 panic confirm`
 - `m1 notify hello`
 - `all ping`
 
@@ -73,6 +77,7 @@ Notes:
 - `all` is intentionally restricted to `ping` in this MVP
 - `volume up/down`, `next`, and `previous` support optional numeric repeats (`1-20`)
 - app launch verbs supported: `open`, `launch`, `start`
+- emergency command requires explicit confirmation (`panic confirm`, `lockdown confirm`, or `emergency confirm`)
 
 ## Server Setup
 
@@ -160,6 +165,27 @@ Management:
 - `.\manage-t1-agent.ps1 -Action status`
 - `.\manage-t1-agent.ps1 -Action uninstall`
 
+### Emergency-capable device family (E1 agent)
+
+Use this on machines where you want remote panic mode with explicit confirmation (`panic confirm`, `lockdown confirm`, `emergency confirm`).
+
+1. Build a USB-ready E1 agent once:
+
+```powershell
+cd e1
+.\build-e1-usb.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN"
+```
+
+2. Run `e1/dist/e1-agent-usb.exe` once on the target device.
+
+On first run it self-installs to `%LOCALAPPDATA%\E1Agent\e1-agent.exe` and auto-designates `e*` IDs when `-DeviceId` is omitted.
+`e1` keeps remote self-update support, but emergency execution is hardened with strict command gating, cooldown, local audit log, and automatic rollback of temporary network isolation.
+
+Management:
+
+- `.\manage-e1-agent.ps1 -Action status`
+- `.\manage-e1-agent.ps1 -Action uninstall`
+
 ### Manual setup (original agent)
 
 1. Install Go 1.23+ or build on another machine and copy exe
@@ -191,7 +217,6 @@ What first run does:
 Default config path on Windows:
 
 - `%APPDATA%\CordycepsAgent\config.json`
-<<<<<<< Updated upstream
 
 Optional installer script:
 
@@ -203,8 +228,6 @@ Management:
 
 - `.\manage-jarvis-agent.ps1 -Action status`
 - `.\manage-jarvis-agent.ps1 -Action uninstall`
-=======
->>>>>>> Stashed changes
 
 ## iPhone Shortcut
 

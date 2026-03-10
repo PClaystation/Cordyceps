@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     log("error", "Unhandled server error", {
       path: request.url,
       method: request.method,
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
     });
 
     reply.code(500).send({
