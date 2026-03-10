@@ -194,6 +194,7 @@ enum CommandLibrary {
     .init(value: "open paint", label: "open paint", category: "Apps", keywords: ["mspaint"]),
     .init(value: "open snipping tool", label: "open snipping tool", category: "Apps", keywords: ["snippingtool", "screenshot"]),
     .init(value: "lock", label: "lock", category: "Power", keywords: ["lock pc"]),
+<<<<<<< Updated upstream
     .init(value: "lock pc", label: "lock pc", category: "Power", keywords: ["lock"]),
     .init(value: "display off", label: "display off", category: "Power", keywords: ["screen off", "monitor off"]),
     .init(value: "screen off", label: "screen off", category: "Power", keywords: ["display off", "monitor off"]),
@@ -203,6 +204,9 @@ enum CommandLibrary {
     .init(value: "sign out", label: "sign out", category: "Power", keywords: ["log out", "logout"]),
     .init(value: "log out", label: "log out", category: "Power", keywords: ["sign out", "logout"]),
     .init(value: "logout", label: "logout", category: "Power", keywords: ["sign out", "log out"]),
+=======
+    .init(value: "sleep", label: "sleep", category: "Power", keywords: ["sleep pc"]),
+>>>>>>> Stashed changes
     .init(value: "shutdown", label: "shutdown", category: "Power", keywords: ["shut down", "shutdown pc"]),
     .init(value: "restart", label: "restart", category: "Power", keywords: ["reboot", "restart pc"]),
     .init(value: "notify", label: "notify (requires message)", category: "Messaging", keywords: ["alert", "notification"]),
@@ -255,10 +259,13 @@ enum CommandLibrary {
     "shutdown",
     "restart",
     "sleep",
+<<<<<<< Updated upstream
     "sleep pc",
     "sign out",
     "log out",
     "logout",
+=======
+>>>>>>> Stashed changes
   ]
 
   static let quickActions: [String] = [

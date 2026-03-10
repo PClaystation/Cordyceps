@@ -80,6 +80,7 @@ const COMMAND_LIBRARY = [
   { value: "open paint", label: "open paint", category: "Apps", keywords: ["mspaint"] },
   { value: "open snipping tool", label: "open snipping tool", category: "Apps", keywords: ["snippingtool", "screenshot"] },
   { value: "lock", label: "lock", category: "Power", keywords: ["lock pc"] },
+<<<<<<< Updated upstream
   { value: "lock pc", label: "lock pc", category: "Power", keywords: ["lock"] },
   { value: "display off", label: "display off", category: "Power", keywords: ["screen off", "monitor off"] },
   { value: "screen off", label: "screen off", category: "Power", keywords: ["display off", "monitor off"] },
@@ -89,6 +90,9 @@ const COMMAND_LIBRARY = [
   { value: "sign out", label: "sign out", category: "Power", keywords: ["log out", "logout"] },
   { value: "log out", label: "log out", category: "Power", keywords: ["sign out", "logout"] },
   { value: "logout", label: "logout", category: "Power", keywords: ["sign out", "log out"] },
+=======
+  { value: "sleep", label: "sleep", category: "Power", keywords: ["sleep pc"] },
+>>>>>>> Stashed changes
   { value: "shutdown", label: "shutdown", category: "Power", keywords: ["shut down", "shutdown pc"] },
   { value: "restart", label: "restart", category: "Power", keywords: ["reboot", "restart pc"] },
   { value: "notify", label: "notify (requires message)", category: "Messaging", keywords: ["alert", "notification"] },
@@ -147,7 +151,11 @@ const REPEATABLE_ACTIONS = new Set([
   "next",
   "previous",
 ]);
+<<<<<<< Updated upstream
 const dangerousActions = new Set(["shutdown", "shut down", "shutdown pc", "restart", "reboot", "restart pc", "sleep", "sleep pc", "sign out", "log out", "logout"]);
+=======
+const dangerousActions = new Set(["shutdown", "restart", "sleep"]);
+>>>>>>> Stashed changes
 
 let pollTimer = null;
 

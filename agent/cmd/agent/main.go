@@ -22,7 +22,10 @@ import (
 	"github.com/charliearnerstal/cordyceps/agent/internal/background"
 	"github.com/charliearnerstal/cordyceps/agent/internal/commands"
 	"github.com/charliearnerstal/cordyceps/agent/internal/config"
+<<<<<<< Updated upstream
 	"github.com/charliearnerstal/cordyceps/agent/internal/instance"
+=======
+>>>>>>> Stashed changes
 	"github.com/charliearnerstal/cordyceps/agent/internal/protocol"
 	"github.com/charliearnerstal/cordyceps/agent/internal/startup"
 	"github.com/charliearnerstal/cordyceps/agent/internal/updater"

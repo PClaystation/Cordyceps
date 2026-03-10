@@ -191,6 +191,7 @@ What first run does:
 Default config path on Windows:
 
 - `%APPDATA%\CordycepsAgent\config.json`
+<<<<<<< Updated upstream
 
 Optional installer script:
 
@@ -202,6 +203,8 @@ Management:
 
 - `.\manage-jarvis-agent.ps1 -Action status`
 - `.\manage-jarvis-agent.ps1 -Action uninstall`
+=======
+>>>>>>> Stashed changes
 
 ## iPhone Shortcut
 
