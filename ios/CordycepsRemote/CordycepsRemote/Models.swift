@@ -27,6 +27,34 @@ struct DeviceRecord: Decodable, Identifiable, Hashable {
     status.lowercased() == "online"
   }
 
+  var displayTitle: String {
+    if let display_name, !display_name.trimmed.isEmpty {
+      return display_name.trimmed
+    }
+    return device_id
+  }
+
+  var subtitleLabel: String? {
+    var parts: [String] = []
+
+    if displayTitle != device_id {
+      parts.append(device_id)
+    }
+
+    if let hostname, !hostname.trimmed.isEmpty {
+      parts.append(hostname.trimmed)
+    }
+
+    if let username, !username.trimmed.isEmpty {
+      parts.append(username.trimmed)
+    }
+
+    if parts.isEmpty {
+      return nil
+    }
+    return parts.joined(separator: " • ")
+  }
+
   var lastSeenLabel: String {
     guard let date = DeviceRecord.preciseFormatter.date(from: last_seen)
       ?? DeviceRecord.fallbackFormatter.date(from: last_seen)
@@ -151,7 +179,7 @@ struct CommandLibraryEntry: Identifiable, Hashable {
     }
 
     if normalizedValue == "clipboard" || normalizedValue == "copy" {
-      return "copied from jarvis"
+      return "copied from cordyceps"
     }
 
     if CommandLibrary.repeatableActions.contains(normalizedValue) {
@@ -323,6 +351,10 @@ enum CommandLibrary {
 }
 
 extension String {
+  var trimmed: String {
+    trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
   var normalizedActionText: String {
     lowercased()
       .trimmingCharacters(in: .whitespacesAndNewlines)

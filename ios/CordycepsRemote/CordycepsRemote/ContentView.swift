@@ -2,6 +2,10 @@ import SwiftUI
 
 struct ContentView: View {
   @StateObject private var viewModel = RemoteViewModel()
+  @Environment(\.scenePhase) private var scenePhase
+
+  @State private var showDangerousSendConfirmation = false
+  @State private var showUpdateConfirmation = false
 
   var body: some View {
     NavigationStack {
@@ -21,19 +25,24 @@ struct ContentView: View {
           .padding(.top, 10)
           .padding(.bottom, 28)
         }
+        .refreshable {
+          await viewModel.loadDevices()
+        }
       }
-      .navigationTitle("Cordyceps Remote")
+      .navigationTitle("Cordyceps Bloom")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .navigationBarTrailing) {
           if viewModel.isLoadingDevices {
             ProgressView()
+              .tint(CordycepsTheme.myceliumGlow)
           } else {
             Button {
               Task { await viewModel.loadDevices() }
             } label: {
               Label("Refresh", systemImage: "arrow.clockwise")
             }
+            .tint(CordycepsTheme.myceliumGlow)
           }
         }
       }
@@ -43,13 +52,40 @@ struct ContentView: View {
       .onOpenURL { url in
         viewModel.applyPairingLink(url.absoluteString)
       }
+      .onChange(of: scenePhase) { phase in
+        viewModel.setAppLifecycle(isActive: phase == .active)
+      }
+      .confirmationDialog(
+        "This command can immediately interrupt the target device.",
+        isPresented: $showDangerousSendConfirmation,
+        titleVisibility: .visible
+      ) {
+        Button("Send Anyway", role: .destructive) {
+          Task { await viewModel.sendCommand() }
+        }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("Confirm that the target is correct before dispatching.")
+      }
+      .confirmationDialog(
+        "Push this agent update now?",
+        isPresented: $showUpdateConfirmation,
+        titleVisibility: .visible
+      ) {
+        Button("Push Update", role: .destructive) {
+          Task { await viewModel.pushUpdate() }
+        }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("Updates may restart agents and break connectivity if details are wrong.")
+      }
     }
   }
 
   private var backgroundLayer: some View {
     ZStack {
       LinearGradient(
-        colors: [Color(red: 0.03, green: 0.07, blue: 0.10), Color(red: 0.05, green: 0.13, blue: 0.18)],
+        colors: [CordycepsTheme.soilBlack, CordycepsTheme.soilDeep, CordycepsTheme.forestNight],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
       )
@@ -58,58 +94,74 @@ struct ContentView: View {
       Circle()
         .fill(
           RadialGradient(
-            colors: [Color(red: 0.13, green: 0.51, blue: 0.44).opacity(0.35), .clear],
+            colors: [CordycepsTheme.myceliumGlow.opacity(0.45), .clear],
             center: .center,
             startRadius: 8,
-            endRadius: 250
+            endRadius: 260
           )
         )
-        .frame(width: 320, height: 320)
-        .offset(x: -120, y: -260)
-        .blur(radius: 6)
+        .frame(width: 360, height: 360)
+        .offset(x: -130, y: -280)
+        .blur(radius: 8)
 
       Circle()
         .fill(
           RadialGradient(
-            colors: [Color(red: 0.97, green: 0.72, blue: 0.27).opacity(0.30), .clear],
+            colors: [CordycepsTheme.capsuleAmber.opacity(0.34), .clear],
             center: .center,
             startRadius: 8,
-            endRadius: 250
+            endRadius: 240
           )
         )
-        .frame(width: 330, height: 330)
-        .offset(x: 170, y: -310)
-        .blur(radius: 7)
+        .frame(width: 300, height: 300)
+        .offset(x: 170, y: -320)
+        .blur(radius: 8)
+
+      Capsule()
+        .fill(CordycepsTheme.sporePurple.opacity(0.18))
+        .frame(width: 420, height: 190)
+        .rotationEffect(.degrees(-18))
+        .offset(x: 60, y: 290)
+        .blur(radius: 40)
     }
   }
 
   private var heroCard: some View {
     CordycepsCard(
       tint: LinearGradient(
-        colors: [Color(red: 0.12, green: 0.47, blue: 0.41).opacity(0.38), Color(red: 0.90, green: 0.66, blue: 0.20).opacity(0.28)],
+        colors: [
+          CordycepsTheme.myceliumGlow.opacity(0.35),
+          CordycepsTheme.capsuleAmber.opacity(0.26),
+          CordycepsTheme.sporePurple.opacity(0.18),
+        ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
       )
     ) {
       VStack(alignment: .leading, spacing: 12) {
-        HStack(alignment: .top) {
+        HStack(alignment: .top, spacing: 12) {
           VStack(alignment: .leading, spacing: 6) {
-            Text("Command center for your fleet")
-              .font(.system(.title3, design: .rounded).weight(.semibold))
+            Text("Mycelium command nexus")
+              .font(.system(.title3, design: .rounded).weight(.bold))
               .foregroundStyle(.white)
-            Text("Native iOS control surface with PWA feature parity, live status, and update dispatch.")
+            Text("Fungus-themed remote control for your Cordyceps fleet with live state, safer dispatch, and fast reuse.")
               .font(.system(.footnote, design: .rounded))
               .foregroundStyle(Color.white.opacity(0.78))
           }
 
           Spacer(minLength: 0)
-
           statusBadge
         }
 
-        Text(viewModel.lastSuccessLabel)
-          .font(.system(.caption, design: .rounded).weight(.medium))
-          .foregroundStyle(Color.white.opacity(0.76))
+        HStack {
+          Text(viewModel.lastSuccessLabel)
+            .font(.system(.caption, design: .rounded).weight(.semibold))
+            .foregroundStyle(Color.white.opacity(0.76))
+          Spacer(minLength: 0)
+          Text(viewModel.deviceSummaryText)
+            .font(.system(.caption, design: .rounded).weight(.semibold))
+            .foregroundStyle(CordycepsTheme.myceliumGlow.opacity(0.9))
+        }
       }
     }
   }
@@ -119,7 +171,7 @@ struct ContentView: View {
       VStack(alignment: .leading, spacing: 12) {
         sectionHeader("Connection")
 
-        TextField("https://mpmc.ddns.net", text: $viewModel.apiBaseInput)
+        TextField("https://your-cordyceps-host.example", text: $viewModel.apiBaseInput)
           .textInputAutocapitalization(.never)
           .keyboardType(.URL)
           .autocorrectionDisabled()
@@ -134,7 +186,7 @@ struct ContentView: View {
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled()
           .cordycepsFieldStyle()
-          .onChange(of: viewModel.targetInput) { _, _ in
+          .onChange(of: viewModel.targetInput) { _ in
             viewModel.targetDidChange()
           }
 
@@ -164,7 +216,7 @@ struct ContentView: View {
             .font(.system(.caption, design: .rounded).weight(.semibold))
             .foregroundStyle(Color.white.opacity(0.72))
 
-          TextField("Paste pwa_pairing_url or external pairing link", text: $viewModel.pairingLinkInput)
+          TextField("Paste pairing URL", text: $viewModel.pairingLinkInput)
             .textInputAutocapitalization(.never)
             .keyboardType(.URL)
             .autocorrectionDisabled()
@@ -182,7 +234,11 @@ struct ContentView: View {
 
         Text(viewModel.statusText)
           .font(.system(.caption, design: .rounded).weight(.medium))
-          .foregroundStyle(viewModel.statusIsError ? Color(red: 1.0, green: 0.74, blue: 0.74) : Color.white.opacity(0.72))
+          .foregroundStyle(
+            viewModel.statusIsError
+              ? CordycepsTheme.errorText
+              : Color.white.opacity(0.74)
+          )
       }
     }
   }
@@ -192,12 +248,40 @@ struct ContentView: View {
       VStack(alignment: .leading, spacing: 12) {
         sectionHeader("Devices")
 
+        HStack(spacing: 8) {
+          TextField("Search name, host, or ID", text: $viewModel.deviceSearchInput)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .cordycepsFieldStyle()
+
+          Button {
+            viewModel.showOnlyOnlineDevices.toggle()
+          } label: {
+            HStack(spacing: 6) {
+              Image(systemName: viewModel.showOnlyOnlineDevices ? "dot.radiowaves.left.and.right" : "circle.dashed")
+              Text("Online")
+                .lineLimit(1)
+            }
+            .font(.system(.footnote, design: .rounded).weight(.semibold))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+              Capsule()
+                .fill(viewModel.showOnlyOnlineDevices ? CordycepsTheme.primaryButton.opacity(0.85) : CordycepsTheme.cardFill)
+                .overlay(Capsule().stroke(CordycepsTheme.strokeSoft, lineWidth: 1))
+            )
+          }
+          .foregroundStyle(viewModel.showOnlyOnlineDevices ? CordycepsTheme.buttonTextPrimary : Color.white)
+        }
+
         if viewModel.devices.isEmpty {
           emptyState("No enrolled devices loaded yet.")
+        } else if viewModel.filteredDevices.isEmpty {
+          emptyState("No devices match your current filters.")
         } else {
           ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 10) {
-              ForEach(viewModel.devices) { device in
+              ForEach(viewModel.filteredDevices) { device in
                 deviceCard(device)
               }
             }
@@ -210,28 +294,35 @@ struct ContentView: View {
 
   private func deviceCard(_ device: DeviceRecord) -> some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text(device.device_id)
+      Text(device.displayTitle)
         .font(.system(.headline, design: .rounded).weight(.bold))
         .foregroundStyle(.white)
         .lineLimit(1)
 
+      if let subtitle = device.subtitleLabel {
+        Text(subtitle)
+          .font(.system(.caption2, design: .rounded))
+          .foregroundStyle(Color.white.opacity(0.68))
+          .lineLimit(2)
+      }
+
       HStack(spacing: 8) {
         Capsule()
-          .fill(device.isOnline ? Color(red: 0.48, green: 0.92, blue: 0.83) : Color(red: 0.84, green: 0.35, blue: 0.35))
+          .fill(device.isOnline ? CordycepsTheme.myceliumGlow : CordycepsTheme.errorDot)
           .frame(width: 8, height: 8)
         Text(device.isOnline ? "online" : "offline")
           .font(.system(.caption, design: .rounded).weight(.semibold))
-          .foregroundStyle(device.isOnline ? Color(red: 0.48, green: 0.92, blue: 0.83) : Color(red: 0.96, green: 0.66, blue: 0.66))
+          .foregroundStyle(device.isOnline ? CordycepsTheme.myceliumGlow : CordycepsTheme.errorText)
       }
 
       Text("last seen \(device.lastSeenLabel)")
         .font(.system(.caption2, design: .rounded))
-        .foregroundStyle(Color.white.opacity(0.65))
+        .foregroundStyle(Color.white.opacity(0.66))
 
       if let version = device.version, !version.isEmpty {
-        Text("v\(version)")
-          .font(.system(.caption2, design: .rounded).weight(.medium))
-          .foregroundStyle(Color.white.opacity(0.62))
+        Text("agent \(version)")
+          .font(.system(.caption2, design: .rounded).weight(.semibold))
+          .foregroundStyle(CordycepsTheme.capsuleAmber.opacity(0.95))
       }
 
       Spacer(minLength: 0)
@@ -244,16 +335,16 @@ struct ContentView: View {
           .frame(maxWidth: .infinity)
       }
       .buttonStyle(.borderedProminent)
-      .tint(device.isOnline ? Color(red: 0.20, green: 0.70, blue: 0.60) : Color(red: 0.35, green: 0.37, blue: 0.42))
+      .tint(device.isOnline ? CordycepsTheme.primaryButton : CordycepsTheme.offlineButton)
     }
     .padding(12)
-    .frame(width: 180, height: 152, alignment: .topLeading)
+    .frame(width: 220, height: 182, alignment: .topLeading)
     .background(
       RoundedRectangle(cornerRadius: 15, style: .continuous)
-        .fill(Color.white.opacity(0.05))
+        .fill(CordycepsTheme.cardFill)
         .overlay(
           RoundedRectangle(cornerRadius: 15, style: .continuous)
-            .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            .stroke(CordycepsTheme.strokeSoft, lineWidth: 1)
         )
     )
   }
@@ -267,7 +358,7 @@ struct ContentView: View {
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled()
           .cordycepsFieldStyle()
-          .onChange(of: viewModel.targetInput) { _, _ in
+          .onChange(of: viewModel.targetInput) { _ in
             viewModel.targetDidChange()
           }
 
@@ -275,7 +366,7 @@ struct ContentView: View {
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled()
           .cordycepsFieldStyle()
-          .onChange(of: viewModel.actionSearchInput) { _, _ in
+          .onChange(of: viewModel.actionSearchInput) { _ in
             viewModel.actionSearchDidChange()
           }
 
@@ -289,8 +380,8 @@ struct ContentView: View {
           }
         }
         .pickerStyle(.menu)
-        .tint(Color(red: 0.52, green: 0.90, blue: 0.82))
-        .onChange(of: viewModel.selectedActionValue) { _, _ in
+        .tint(CordycepsTheme.myceliumGlow)
+        .onChange(of: viewModel.selectedActionValue) { _ in
           viewModel.actionSelectionDidChange()
         }
 
@@ -303,14 +394,18 @@ struct ContentView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .cordycepsFieldStyle()
-            .onChange(of: viewModel.argumentInput) { _, _ in
+            .onChange(of: viewModel.argumentInput) { _ in
               viewModel.composeFromInputs()
             }
         }
 
         if viewModel.selectedActionIsDangerous {
-          dangerZone("This command can interrupt the machine immediately. Confirm the target before sending.")
+          dangerZone("This command can interrupt the machine immediately. Review target and intent before sending.")
         }
+
+        Text("Quick Cast")
+          .font(.system(.caption, design: .rounded).weight(.semibold))
+          .foregroundStyle(Color.white.opacity(0.74))
 
         ScrollView(.horizontal, showsIndicators: false) {
           HStack(spacing: 8) {
@@ -324,13 +419,53 @@ struct ContentView: View {
               .padding(.vertical, 7)
               .background(
                 Capsule()
-                  .fill(Color.white.opacity(0.08))
-                  .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
+                  .fill(CordycepsTheme.cardFill)
+                  .overlay(Capsule().stroke(CordycepsTheme.strokeSoft, lineWidth: 1))
               )
               .foregroundStyle(Color.white.opacity(0.88))
             }
           }
           .padding(.vertical, 2)
+        }
+
+        if !viewModel.recentCommands.isEmpty {
+          HStack {
+            Text("Recent")
+              .font(.system(.caption, design: .rounded).weight(.semibold))
+              .foregroundStyle(Color.white.opacity(0.74))
+            Spacer(minLength: 0)
+            Button("Clear") {
+              viewModel.clearRecentCommands()
+            }
+            .font(.system(.caption, design: .rounded).weight(.semibold))
+            .foregroundStyle(CordycepsTheme.capsuleAmber.opacity(0.95))
+          }
+
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+              ForEach(viewModel.recentCommands, id: \.self) { command in
+                Button {
+                  viewModel.useRecentCommand(command)
+                } label: {
+                  Text(command)
+                    .font(.system(.caption, design: .monospaced).weight(.medium))
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                }
+                .foregroundStyle(CordycepsTheme.myceliumGlow)
+                .background(
+                  RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(0.23))
+                    .overlay(
+                      RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(CordycepsTheme.strokeSoft, lineWidth: 1)
+                    )
+                )
+              }
+            }
+            .padding(.vertical, 2)
+          }
         }
 
         TextField("Command text", text: $viewModel.commandText, axis: .vertical)
@@ -343,7 +478,9 @@ struct ContentView: View {
           actionButton("Build", icon: "wand.and.stars", role: .normal) {
             viewModel.composeFromInputs()
           }
-
+          actionButton("Copy", icon: "doc.on.doc", role: .normal) {
+            viewModel.copyCommandToClipboard()
+          }
           actionButton(
             viewModel.isListening ? "Stop" : "Speak",
             icon: viewModel.isListening ? "waveform.slash" : "waveform",
@@ -351,15 +488,24 @@ struct ContentView: View {
           ) {
             Task { await viewModel.toggleSpeechCapture() }
           }
+        }
 
-          actionButton("Send", icon: "paperplane.fill", role: viewModel.selectedActionIsDangerous ? .danger : .primary, loading: viewModel.isSendingCommand) {
+        actionButton(
+          "Send Command",
+          icon: "paperplane.fill",
+          role: viewModel.selectedActionIsDangerous ? .danger : .primary,
+          loading: viewModel.isSendingCommand
+        ) {
+          if viewModel.selectedActionIsDangerous {
+            showDangerousSendConfirmation = true
+          } else {
             Task { await viewModel.sendCommand() }
           }
         }
 
         Text(viewModel.speechInfoText)
           .font(.system(.caption, design: .rounded))
-          .foregroundStyle(viewModel.speechSupported ? Color.white.opacity(0.70) : Color(red: 0.98, green: 0.72, blue: 0.72))
+          .foregroundStyle(viewModel.speechSupported ? Color.white.opacity(0.70) : CordycepsTheme.errorText)
       }
     }
   }
@@ -369,44 +515,54 @@ struct ContentView: View {
       VStack(alignment: .leading, spacing: 12) {
         sectionHeader("Agent Update")
 
-        Text("Push a verified agent EXE update to one target or all online devices.")
+        Text("Push a verified agent package to one target or all online devices.")
           .font(.system(.caption, design: .rounded))
           .foregroundStyle(Color.white.opacity(0.72))
 
-        dangerZone("Updates restart the agent and can break connectivity if package details are wrong.")
+        dangerZone("Updates can restart agents and cut off remote control if package metadata is wrong.")
 
         TextField("Target (m1 or all)", text: $viewModel.updateTargetInput)
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled()
           .cordycepsFieldStyle()
-          .onChange(of: viewModel.updateTargetInput) { _, _ in viewModel.persistUpdateSettings() }
+          .onChange(of: viewModel.updateTargetInput) { _ in
+            viewModel.persistUpdateSettings()
+          }
 
         TextField("Version (0.2.0)", text: $viewModel.updateVersionInput)
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled()
           .cordycepsFieldStyle()
-          .onChange(of: viewModel.updateVersionInput) { _, _ in viewModel.persistUpdateSettings() }
+          .onChange(of: viewModel.updateVersionInput) { _ in
+            viewModel.persistUpdateSettings()
+          }
 
         TextField("Package URL (https://...)", text: $viewModel.updateURLInput)
           .textInputAutocapitalization(.never)
           .keyboardType(.URL)
           .autocorrectionDisabled()
           .cordycepsFieldStyle()
-          .onChange(of: viewModel.updateURLInput) { _, _ in viewModel.persistUpdateSettings() }
+          .onChange(of: viewModel.updateURLInput) { _ in
+            viewModel.persistUpdateSettings()
+          }
 
         TextField("SHA256 (optional 64 hex chars)", text: $viewModel.updateShaInput)
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled()
           .cordycepsFieldStyle()
-          .onChange(of: viewModel.updateShaInput) { _, _ in viewModel.persistUpdateSettings() }
+          .onChange(of: viewModel.updateShaInput) { _ in
+            viewModel.persistUpdateSettings()
+          }
 
         TextField("Size bytes (optional)", text: $viewModel.updateSizeInput)
           .keyboardType(.numberPad)
           .cordycepsFieldStyle()
-          .onChange(of: viewModel.updateSizeInput) { _, _ in viewModel.persistUpdateSettings() }
+          .onChange(of: viewModel.updateSizeInput) { _ in
+            viewModel.persistUpdateSettings()
+          }
 
-        actionButton("Push Update", icon: "arrow.up.circle.fill", role: .warning, loading: viewModel.isPushingUpdate) {
-          Task { await viewModel.pushUpdate() }
+        actionButton("Review & Push", icon: "arrow.up.circle.fill", role: .warning, loading: viewModel.isPushingUpdate) {
+          showUpdateConfirmation = true
         }
       }
     }
@@ -427,7 +583,7 @@ struct ContentView: View {
         ScrollView(.vertical) {
           Text(viewModel.responseText)
             .font(.system(.footnote, design: .monospaced))
-            .foregroundStyle(Color(red: 0.89, green: 0.94, blue: 0.97))
+            .foregroundStyle(CordycepsTheme.resultText)
             .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
         }
@@ -435,10 +591,10 @@ struct ContentView: View {
         .padding(12)
         .background(
           RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color.black.opacity(0.28))
+            .fill(Color.black.opacity(0.32))
             .overlay(
               RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                .stroke(CordycepsTheme.strokeSoft, lineWidth: 1)
             )
         )
 
@@ -456,13 +612,13 @@ struct ContentView: View {
     switch viewModel.connectionState {
     case .connected:
       label = "Connected"
-      tint = Color(red: 0.43, green: 0.91, blue: 0.80)
+      tint = CordycepsTheme.myceliumGlow
     case .retrying:
       label = "Retrying"
-      tint = Color(red: 0.97, green: 0.74, blue: 0.33)
+      tint = CordycepsTheme.capsuleAmber
     case .disconnected:
       label = "Disconnected"
-      tint = Color(red: 0.90, green: 0.42, blue: 0.42)
+      tint = CordycepsTheme.errorDot
     }
 
     return Text(label.uppercased())
@@ -472,8 +628,8 @@ struct ContentView: View {
       .padding(.vertical, 5)
       .background(
         Capsule()
-          .fill(tint.opacity(0.22))
-          .overlay(Capsule().stroke(tint.opacity(0.85), lineWidth: 1))
+          .fill(tint.opacity(0.24))
+          .overlay(Capsule().stroke(tint.opacity(0.86), lineWidth: 1))
       )
       .foregroundStyle(tint)
   }
@@ -492,10 +648,10 @@ struct ContentView: View {
       .padding(12)
       .background(
         RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .fill(Color.white.opacity(0.06))
+          .fill(CordycepsTheme.cardFill)
           .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-              .stroke(Color.white.opacity(0.12), lineWidth: 1)
+              .stroke(CordycepsTheme.strokeSoft, lineWidth: 1)
           )
       )
   }
@@ -503,20 +659,20 @@ struct ContentView: View {
   private func dangerZone(_ text: String) -> some View {
     HStack(alignment: .top, spacing: 10) {
       Image(systemName: "exclamationmark.triangle.fill")
-        .foregroundStyle(Color(red: 1.0, green: 0.74, blue: 0.52))
+        .foregroundStyle(CordycepsTheme.capsuleAmber)
 
       Text(text)
         .font(.system(.caption, design: .rounded))
-        .foregroundStyle(Color(red: 1.0, green: 0.79, blue: 0.73))
+        .foregroundStyle(CordycepsTheme.errorText)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(10)
     .background(
       RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .fill(Color(red: 0.58, green: 0.17, blue: 0.17).opacity(0.25))
+        .fill(CordycepsTheme.dangerFill)
         .overlay(
           RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(Color(red: 1.0, green: 0.55, blue: 0.55).opacity(0.44), lineWidth: 1)
+            .stroke(CordycepsTheme.dangerStroke, lineWidth: 1)
         )
     )
   }
@@ -530,16 +686,16 @@ struct ContentView: View {
 
       Text(value)
         .font(.system(.caption, design: .rounded).weight(.semibold))
-        .foregroundStyle(emphasize ? Color(red: 0.98, green: 0.72, blue: 0.72) : Color(red: 0.69, green: 0.95, blue: 0.85))
+        .foregroundStyle(emphasize ? CordycepsTheme.errorText : CordycepsTheme.myceliumGlow)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(10)
     .background(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(Color.white.opacity(0.05))
+        .fill(CordycepsTheme.cardFill)
         .overlay(
           RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            .stroke(CordycepsTheme.strokeSoft, lineWidth: 1)
         )
     )
   }
@@ -549,6 +705,7 @@ struct ContentView: View {
     icon: String,
     role: ButtonRoleStyle,
     loading: Bool = false,
+    disabled: Bool = false,
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
@@ -568,7 +725,7 @@ struct ContentView: View {
       .padding(.vertical, 10)
       .padding(.horizontal, 8)
     }
-    .disabled(loading)
+    .disabled(loading || disabled)
     .foregroundStyle(role.foreground)
     .background(
       RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -579,6 +736,30 @@ struct ContentView: View {
         )
     )
   }
+}
+
+private enum CordycepsTheme {
+  static let soilBlack = Color(red: 0.04, green: 0.04, blue: 0.03)
+  static let soilDeep = Color(red: 0.09, green: 0.08, blue: 0.05)
+  static let forestNight = Color(red: 0.09, green: 0.14, blue: 0.09)
+
+  static let myceliumGlow = Color(red: 0.62, green: 0.90, blue: 0.66)
+  static let capsuleAmber = Color(red: 0.95, green: 0.68, blue: 0.32)
+  static let sporePurple = Color(red: 0.52, green: 0.42, blue: 0.60)
+
+  static let primaryButton = Color(red: 0.26, green: 0.64, blue: 0.35)
+  static let buttonTextPrimary = Color(red: 0.05, green: 0.20, blue: 0.09)
+  static let offlineButton = Color(red: 0.28, green: 0.31, blue: 0.27)
+
+  static let cardFill = Color.white.opacity(0.07)
+  static let strokeSoft = Color.white.opacity(0.16)
+
+  static let dangerFill = Color(red: 0.40, green: 0.14, blue: 0.10).opacity(0.30)
+  static let dangerStroke = Color(red: 0.92, green: 0.52, blue: 0.46).opacity(0.56)
+  static let errorText = Color(red: 1.0, green: 0.78, blue: 0.74)
+  static let errorDot = Color(red: 0.92, green: 0.47, blue: 0.46)
+
+  static let resultText = Color(red: 0.90, green: 0.95, blue: 0.91)
 }
 
 private struct CordycepsCard<Content: View>: View {
@@ -597,10 +778,10 @@ private struct CordycepsCard<Content: View>: View {
     .padding(14)
     .background(
       RoundedRectangle(cornerRadius: 18, style: .continuous)
-        .fill(Color.white.opacity(0.07))
+        .fill(CordycepsTheme.cardFill)
         .overlay(
           RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            .stroke(CordycepsTheme.strokeSoft, lineWidth: 1)
         )
         .overlay {
           if let tint {
@@ -609,7 +790,7 @@ private struct CordycepsCard<Content: View>: View {
           }
         }
     )
-    .shadow(color: .black.opacity(0.22), radius: 20, x: 0, y: 10)
+    .shadow(color: .black.opacity(0.24), radius: 22, x: 0, y: 10)
   }
 }
 
@@ -622,13 +803,13 @@ private enum ButtonRoleStyle {
   var background: Color {
     switch self {
     case .normal:
-      return Color.white.opacity(0.07)
+      return CordycepsTheme.cardFill
     case .primary:
-      return Color(red: 0.12, green: 0.60, blue: 0.52).opacity(0.95)
+      return CordycepsTheme.primaryButton.opacity(0.95)
     case .warning:
-      return Color(red: 0.92, green: 0.60, blue: 0.24).opacity(0.95)
+      return CordycepsTheme.capsuleAmber.opacity(0.95)
     case .danger:
-      return Color(red: 0.80, green: 0.28, blue: 0.30).opacity(0.95)
+      return Color(red: 0.76, green: 0.28, blue: 0.25).opacity(0.95)
     }
   }
 
@@ -637,24 +818,24 @@ private enum ButtonRoleStyle {
     case .normal:
       return .white
     case .primary:
-      return Color(red: 0.03, green: 0.22, blue: 0.19)
+      return CordycepsTheme.buttonTextPrimary
     case .warning:
-      return Color(red: 0.24, green: 0.14, blue: 0.03)
+      return Color(red: 0.29, green: 0.17, blue: 0.06)
     case .danger:
-      return Color(red: 0.20, green: 0.04, blue: 0.05)
+      return Color(red: 0.25, green: 0.06, blue: 0.05)
     }
   }
 
   var border: Color {
     switch self {
     case .normal:
-      return Color.white.opacity(0.20)
+      return CordycepsTheme.strokeSoft
     case .primary:
-      return Color(red: 0.26, green: 0.74, blue: 0.64)
+      return CordycepsTheme.myceliumGlow.opacity(0.9)
     case .warning:
-      return Color(red: 0.95, green: 0.75, blue: 0.42)
+      return CordycepsTheme.capsuleAmber
     case .danger:
-      return Color(red: 0.96, green: 0.62, blue: 0.62)
+      return Color(red: 0.95, green: 0.67, blue: 0.62)
     }
   }
 }
@@ -670,7 +851,7 @@ private extension View {
           .fill(Color.black.opacity(0.30))
           .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-              .stroke(Color.white.opacity(0.14), lineWidth: 1)
+              .stroke(CordycepsTheme.strokeSoft, lineWidth: 1)
           )
       )
       .foregroundStyle(Color.white)

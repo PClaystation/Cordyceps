@@ -4,16 +4,19 @@ Native SwiftUI client for controlling Cordyceps agents from iPhone.
 
 ## What it supports
 
-- Full command-library parity with the PWA:
-  - Searchable action catalog with aliases and categories
-  - Repeatable action arguments (`volume up 3`, `next 2`, etc.)
-  - Dangerous-action highlighting
+- Fungus-themed Cordyceps UI rebrand (`Cordyceps Bloom`) with a custom app icon + accent color
+- Command-library parity with the PWA:
+  - Searchable actions with aliases and category grouping
+  - Repeatable action arguments (`volume up 3`, `next 2`)
+  - Dangerous-action warning + explicit confirmation dialog
 - Save API base URL + `PHONE_API_TOKEN`
-- Test token and load devices with live connection state (`Connected`, `Retrying`, `Disconnected`)
-- Auto-refresh device presence every 30 seconds
+- Token test + live connection state (`Connected`, `Retrying`, `Disconnected`)
+- Device list auto-refresh every 30 seconds while app is active
+- Device search and online-only filter
 - Select target from device cards
 - Build/send typed commands through `POST /api/command`
-- Voice dictation for command text (`Speak` button)
+- Recent command history chips (reuse and clear)
+- Voice dictation for command text (`Speak`)
 - Pairing-link import (paste `pwa_pairing_url` / external pairing URL and auto-fill settings)
 - Send update payloads through `POST /api/update`
 - Rich result panel:
@@ -21,14 +24,28 @@ Native SwiftUI client for controlling Cordyceps agents from iPhone.
   - request ID
   - latency
   - server message + raw JSON
-- Persist connection, action, success timestamp, and update defaults in local app storage
+- Persist connection/action/update defaults and recent command history in local storage
 
-## Open in Xcode
+## Requirements
 
-1. Open `ios/CordycepsRemote/CordycepsRemote.xcodeproj`
-2. Select target `CordycepsRemote`
-3. Set your signing team and bundle id (if needed)
-4. Run on an iPhone simulator or physical iPhone
+- Xcode 16+
+- iOS 16.0+ device
+
+## Install on iPhone
+
+1. Open `ios/CordycepsRemote/CordycepsRemote.xcodeproj` in Xcode.
+2. Select target `CordycepsRemote`.
+3. In `Signing & Capabilities`, choose your Apple Team and set a unique bundle identifier if needed.
+4. Plug in your iPhone (or pair wirelessly) and choose it as the run destination.
+5. Build and Run (`Cmd+R`).
+
+### If install/download to phone fails
+
+1. Confirm the iPhone is on iOS 16 or newer.
+2. Enable `Settings -> Privacy & Security -> Developer Mode` on iPhone.
+3. Trust your developer certificate on device (`Settings -> General -> VPN & Device Management`) if prompted.
+4. Use your own team + bundle id in Xcode (do not rely on placeholder values from repo).
+5. Clean build folder (`Shift+Cmd+K`) and rerun.
 
 ## Server configuration
 
@@ -43,4 +60,5 @@ Then tap `Load` to fetch devices.
 
 - This app talks to the same server endpoints used by the web PWA.
 - The app requests microphone + speech recognition permissions only when `Speak` is used.
-- If your server is HTTPS and the app cannot connect, confirm the host is reachable from iPhone and token is correct.
+- If your server cannot connect, confirm host reachability from iPhone and token validity.
+- iOS ATS still expects secure (HTTPS) remote endpoints. Local-network HTTP targets may require additional ATS exceptions depending on your setup.

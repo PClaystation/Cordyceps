@@ -4,6 +4,8 @@
 <dict>
   <key>CFBundleDevelopmentRegion</key>
   <string>$(DEVELOPMENT_LANGUAGE)</string>
+  <key>CFBundleDisplayName</key>
+  <string>Cordyceps Bloom</string>
   <key>CFBundleExecutable</key>
   <string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleIdentifier</key>
@@ -24,6 +26,11 @@
   <string>Cordyceps Remote uses the microphone to capture voice commands before sending them to your agents.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
   <string>Cordyceps Remote uses speech recognition to transcribe spoken commands into command text.</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
   <key>UIApplicationSupportsIndirectInputEvents</key>
   <true/>
   <key>UILaunchScreen</key>

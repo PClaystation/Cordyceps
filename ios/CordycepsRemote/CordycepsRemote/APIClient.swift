@@ -36,6 +36,7 @@ enum CordycepsClient {
   }()
 
   private static let decoder = JSONDecoder()
+  private static let isoFormatter = ISO8601DateFormatter()
 
   static func makeConnectionConfig(apiBaseInput: String, tokenInput: String) throws -> ConnectionConfig {
     let token = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -66,8 +67,8 @@ enum CordycepsClient {
       request_id: requestID,
       text: text,
       source: "ios-native",
-      sent_at: ISO8601DateFormatter().string(from: Date()),
-      client_version: "cordyceps-remote-ios-v2"
+      sent_at: isoFormatter.string(from: Date()),
+      client_version: "cordyceps-remote-ios-v3"
     )
 
     return try await execute(
@@ -121,7 +122,9 @@ enum CordycepsClient {
     var request = URLRequest(url: endpointURL)
     request.httpMethod = method
     request.timeoutInterval = 20
+    request.cachePolicy = .reloadIgnoringLocalCacheData
     request.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
 
     if let body {
       request.httpBody = try encoder.encode(body)

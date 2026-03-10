@@ -16,9 +16,11 @@ final class RemoteViewModel: ObservableObject {
     static let updateSize = "cordyceps.ios.updateSize"
     static let lastSuccess = "cordyceps.ios.lastSuccess"
     static let lastAction = "cordyceps.ios.lastAction"
+    static let commandHistory = "cordyceps.ios.commandHistory"
   }
 
   private static let pollIntervalNs: UInt64 = 30_000_000_000
+  private static let maxCommandHistory = 12
 
   @Published var apiBaseInput: String
   @Published var tokenInput: String
@@ -36,8 +38,11 @@ final class RemoteViewModel: ObservableObject {
   @Published var updateSizeInput: String
 
   @Published var pairingLinkInput = ""
+  @Published var deviceSearchInput = ""
+  @Published var showOnlyOnlineDevices = false
 
   @Published var devices: [DeviceRecord] = []
+  @Published var recentCommands: [String]
 
   @Published var isLoadingDevices = false
   @Published var isTestingToken = false
@@ -64,6 +69,7 @@ final class RemoteViewModel: ObservableObject {
   private let speechController = SpeechController()
   private var pollingTask: Task<Void, Never>?
   private var hasInitialized = false
+  private var appIsActive = true
 
   init() {
     let initialTarget = defaults.string(forKey: DefaultsKey.target) ?? "m1"
@@ -81,6 +87,7 @@ final class RemoteViewModel: ObservableObject {
     updateURLInput = defaults.string(forKey: DefaultsKey.updateURL) ?? ""
     updateShaInput = defaults.string(forKey: DefaultsKey.updateSha) ?? ""
     updateSizeInput = defaults.string(forKey: DefaultsKey.updateSize) ?? ""
+    recentCommands = []
 
     connectionState = initialToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .disconnected : .retrying
 
@@ -93,6 +100,8 @@ final class RemoteViewModel: ObservableObject {
     if !speechSupported {
       speechInfoText = "Speech not supported on this device."
     }
+
+    recentCommands = loadCommandHistory()
   }
 
   deinit {
@@ -106,6 +115,35 @@ final class RemoteViewModel: ObservableObject {
 
   var filteredActions: [CommandLibraryEntry] {
     CommandLibrary.filteredEntries(matching: actionSearchInput)
+  }
+
+  var filteredDevices: [DeviceRecord] {
+    var filtered = devices
+
+    if showOnlyOnlineDevices {
+      filtered = filtered.filter(\.isOnline)
+    }
+
+    let query = deviceSearchInput.normalizedActionText
+    if query.isEmpty {
+      return filtered
+    }
+
+    let terms = query.split(separator: " ").map(String.init)
+    return filtered.filter { device in
+      let searchable = [
+        device.device_id,
+        device.display_name ?? "",
+        device.hostname ?? "",
+        device.username ?? "",
+      ]
+      .joined(separator: " ")
+      .normalizedActionText
+
+      return terms.allSatisfy { term in
+        searchable.contains(term)
+      }
+    }
   }
 
   var actionPickerGroups: [CommandCategoryGroup] {
@@ -146,6 +184,9 @@ final class RemoteViewModel: ObservableObject {
     }
 
     let onlineCount = devices.filter(\.isOnline).count
+    if filteredDevices.count != devices.count {
+      return "\(onlineCount)/\(devices.count) online • \(filteredDevices.count) shown"
+    }
     return "\(onlineCount)/\(devices.count) online"
   }
 
@@ -167,16 +208,32 @@ final class RemoteViewModel: ObservableObject {
     }
   }
 
+  func setAppLifecycle(isActive: Bool) {
+    appIsActive = isActive
+    if !isActive {
+      pollingTask?.cancel()
+      pollingTask = nil
+      if isListening {
+        speechController.stop()
+        isListening = false
+        speechInfoText = "Speech paused while app is in background."
+      }
+      return
+    }
+
+    startPollingIfNeeded()
+  }
+
   func saveConnectionSettings() {
-    let base = apiBaseInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedBase = CordycepsClient.normalizeBaseURL(from: apiBaseInput)?.absoluteString ?? apiBaseInput.trimmed
     let token = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
     let target = normalizeTarget(targetInput)
 
-    apiBaseInput = base
+    apiBaseInput = normalizedBase
     tokenInput = token
     targetInput = target
 
-    defaults.set(base, forKey: DefaultsKey.apiBase)
+    defaults.set(normalizedBase, forKey: DefaultsKey.apiBase)
     defaults.set(token, forKey: DefaultsKey.token)
     defaults.set(target, forKey: DefaultsKey.target)
 
@@ -282,14 +339,7 @@ final class RemoteViewModel: ObservableObject {
     do {
       let config = try CordycepsClient.makeConnectionConfig(apiBaseInput: apiBaseInput, tokenInput: tokenInput)
       let response = try await CordycepsClient.loadDevices(config: config)
-      let sorted = response.body.devices.sorted { lhs, rhs in
-        if lhs.isOnline != rhs.isOnline {
-          return lhs.isOnline && !rhs.isOnline
-        }
-        return lhs.device_id < rhs.device_id
-      }
-
-      devices = sorted
+      devices = sortedDevices(response.body.devices)
       connectionState = .connected
 
       if !silent {
@@ -301,6 +351,7 @@ final class RemoteViewModel: ObservableObject {
           latencyMs: response.latencyMs,
           isError: false
         )
+        triggerFeedback(.success)
       }
     } catch {
       handle(error: error, silent: silent, fromPolling: fromPolling)
@@ -320,14 +371,7 @@ final class RemoteViewModel: ObservableObject {
     do {
       let config = try CordycepsClient.makeConnectionConfig(apiBaseInput: apiBaseInput, tokenInput: tokenInput)
       let response = try await CordycepsClient.loadDevices(config: config)
-      let sorted = response.body.devices.sorted { lhs, rhs in
-        if lhs.isOnline != rhs.isOnline {
-          return lhs.isOnline && !rhs.isOnline
-        }
-        return lhs.device_id < rhs.device_id
-      }
-
-      devices = sorted
+      devices = sortedDevices(response.body.devices)
       connectionState = .connected
       setStatus("Token valid. Device list loaded.", isError: false)
       setResult(
@@ -337,6 +381,7 @@ final class RemoteViewModel: ObservableObject {
         latencyMs: response.latencyMs,
         isError: false
       )
+      triggerFeedback(.success)
       startPollingIfNeeded()
     } catch {
       handle(error: error, silent: false, fromPolling: false)
@@ -367,6 +412,10 @@ final class RemoteViewModel: ObservableObject {
       let message = response.body.message ?? response.body.error_code ?? (isError ? "Command failed." : "Command sent.")
       if !isError {
         setLastCommandSuccess()
+        appendRecentCommand(text)
+        triggerFeedback(.success)
+      } else {
+        triggerFeedback(.error)
       }
       setStatus(message, isError: isError)
       setResult(
@@ -455,6 +504,11 @@ final class RemoteViewModel: ObservableObject {
       connectionState = .connected
       let isError = response.body.ok == false
       let message = response.body.message ?? response.body.error_code ?? (isError ? "Update failed." : "Update dispatched.")
+      if isError {
+        triggerFeedback(.error)
+      } else {
+        triggerFeedback(.success)
+      }
       setStatus(message, isError: isError)
       setResult(
         message: message,
@@ -512,8 +566,9 @@ final class RemoteViewModel: ObservableObject {
     var applied = false
 
     if !api.isEmpty {
-      apiBaseInput = api
-      defaults.set(api, forKey: DefaultsKey.apiBase)
+      let normalizedAPI = CordycepsClient.normalizeBaseURL(from: api)?.absoluteString ?? api
+      apiBaseInput = normalizedAPI
+      defaults.set(normalizedAPI, forKey: DefaultsKey.apiBase)
       applied = true
     }
 
@@ -585,7 +640,7 @@ final class RemoteViewModel: ObservableObject {
     }
 
     if !command.isEmpty {
-      commandText = command.normalizedActionText
+      commandText = collapseWhitespacePreservingCase(command)
       applied = true
     } else if !target.isEmpty, !action.isEmpty {
       let combined = "\(target.normalizedActionText) \(action.normalizedActionText)\(arg.isEmpty ? "" : " \(arg)")"
@@ -609,6 +664,37 @@ final class RemoteViewModel: ObservableObject {
   func copyResponseToClipboard() {
     UIPasteboard.general.string = responseText
     setStatus("Result JSON copied.", isError: false)
+    triggerFeedback(.success)
+  }
+
+  func copyCommandToClipboard() {
+    let text = commandText.trimmed
+    guard !text.isEmpty else {
+      setStatus("Command text is empty.", isError: true)
+      setResult(message: "Command text is empty.", rawBody: "Command text is empty.", isError: true)
+      triggerFeedback(.error)
+      return
+    }
+
+    UIPasteboard.general.string = text
+    setStatus("Command copied to clipboard.", isError: false)
+    triggerFeedback(.success)
+  }
+
+  func useRecentCommand(_ command: String) {
+    let trimmed = command.trimmed
+    guard !trimmed.isEmpty else {
+      return
+    }
+
+    commandText = trimmed
+    setStatus("Loaded a recent command.", isError: false)
+  }
+
+  func clearRecentCommands() {
+    recentCommands = []
+    defaults.removeObject(forKey: DefaultsKey.commandHistory)
+    setStatus("Recent command history cleared.", isError: false)
   }
 
   func toggleSpeechCapture() async {
@@ -649,7 +735,7 @@ final class RemoteViewModel: ObservableObject {
             return
           }
           Task { @MainActor in
-            self.commandText = text.normalizedActionText
+            self.commandText = self.collapseWhitespacePreservingCase(text)
             self.speechInfoText = isFinal ? "Speech captured." : "Listening..."
             if isFinal {
               self.isListening = false
@@ -683,9 +769,18 @@ final class RemoteViewModel: ObservableObject {
     pollingTask?.cancel()
     pollingTask = nil
 
+    guard appIsActive else {
+      return
+    }
+
     let token = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !token.isEmpty else {
       connectionState = .disconnected
+      return
+    }
+
+    guard CordycepsClient.normalizeBaseURL(from: apiBaseInput) != nil else {
+      connectionState = .retrying
       return
     }
 
@@ -699,6 +794,11 @@ final class RemoteViewModel: ObservableObject {
         let activeToken = self.tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
         if activeToken.isEmpty {
           self.connectionState = .disconnected
+          return
+        }
+
+        if CordycepsClient.normalizeBaseURL(from: self.apiBaseInput) == nil {
+          self.connectionState = .retrying
           return
         }
 
@@ -721,7 +821,7 @@ final class RemoteViewModel: ObservableObject {
     }
 
     if action == "clipboard" || action == "copy" {
-      return argument.isEmpty ? "\(target) \(action) copied from jarvis" : "\(target) \(action) \(argument)"
+      return argument.isEmpty ? "\(target) \(action) copied from cordyceps" : "\(target) \(action) \(argument)"
     }
 
     if !argument.isEmpty, CommandLibrary.repeatableActions.contains(action) {
@@ -805,6 +905,48 @@ final class RemoteViewModel: ObservableObject {
     return merged
   }
 
+  private func sortedDevices(_ input: [DeviceRecord]) -> [DeviceRecord] {
+    input.sorted { lhs, rhs in
+      if lhs.isOnline != rhs.isOnline {
+        return lhs.isOnline && !rhs.isOnline
+      }
+      return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+    }
+  }
+
+  private func collapseWhitespacePreservingCase(_ input: String) -> String {
+    input
+      .trimmed
+      .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+  }
+
+  private func appendRecentCommand(_ command: String) {
+    let normalized = collapseWhitespacePreservingCase(command)
+    guard !normalized.isEmpty else {
+      return
+    }
+
+    recentCommands.removeAll { $0 == normalized }
+    recentCommands.insert(normalized, at: 0)
+    if recentCommands.count > Self.maxCommandHistory {
+      recentCommands = Array(recentCommands.prefix(Self.maxCommandHistory))
+    }
+    persistCommandHistory()
+  }
+
+  private func loadCommandHistory() -> [String] {
+    guard let payload = defaults.array(forKey: DefaultsKey.commandHistory) as? [String] else {
+      return []
+    }
+    return payload
+      .map { collapseWhitespacePreservingCase($0) }
+      .filter { !$0.isEmpty }
+  }
+
+  private func persistCommandHistory() {
+    defaults.set(Array(recentCommands.prefix(Self.maxCommandHistory)), forKey: DefaultsKey.commandHistory)
+  }
+
   private func setLastCommandSuccess() {
     let nowISO = ISO8601DateFormatter().string(from: Date())
     defaults.set(nowISO, forKey: DefaultsKey.lastSuccess)
@@ -860,7 +1002,11 @@ final class RemoteViewModel: ObservableObject {
         message = clientError.localizedDescription
       }
     } else if let urlError = error as? URLError {
-      message = "Cannot reach server. Connection is retrying (\(urlError.localizedDescription))."
+      if urlError.code == .appTransportSecurityRequiresSecureConnection {
+        message = "Blocked by iOS security policy. Use an https API URL, not plain http."
+      } else {
+        message = "Cannot reach server. Connection is retrying (\(urlError.localizedDescription))."
+      }
     } else {
       message = error.localizedDescription
     }
@@ -876,6 +1022,13 @@ final class RemoteViewModel: ObservableObject {
 
     setStatus(message, isError: true)
     setResult(message: message, rawBody: message, isError: true)
+    triggerFeedback(.error)
+  }
+
+  private func triggerFeedback(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+    let feedback = UINotificationFeedbackGenerator()
+    feedback.prepare()
+    feedback.notificationOccurred(type)
   }
 
   private func requestSpeechAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
