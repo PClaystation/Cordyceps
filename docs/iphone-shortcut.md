@@ -1,8 +1,8 @@
-# iPhone Shortcut MVP Setup
+# iPhone Shortcut Spore Setup
 
-Build a Shortcut that sends dictated text to `POST /api/command`.
+Build a Shortcut that captures spoken commands and sends them into the colony via `POST /api/command`.
 
-## Shortcut Actions
+## Shortcut Chain
 
 1. `Dictate Text` (or `Ask for Input`)
 2. `Set Variable` -> `commandText`
@@ -37,7 +37,7 @@ JSON body fields:
 - `Command rejected: Unknown command: dance`
 - `m1 did not respond in time`
 
-## Tip
+## Field Tip
 
 Create one home-screen button shortcut and keep phrases explicit, for example:
 
@@ -49,4 +49,4 @@ Create one home-screen button shortcut and keep phrases explicit, for example:
 - `m1 shutdown`
 - `m3 lock`
 
-Profile reference: see [docs/agent-profiles.md](agent-profiles.md) for the canonical `s` / `se` / `t` / `e` / `a` behavior matrix.
+Strain reference: see [agent-profiles.md](./agent-profiles.md) for the canonical `s` / `se` / `t` / `e` / `a` behavior matrix.

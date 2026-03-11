@@ -1,6 +1,6 @@
-# Agent Profiles
+# Agent Strains
 
-Cordyceps has five intentionally distinct agent profiles:
+Cordyceps has five intentionally distinct agent strains:
 
 - `s` (`s*` device IDs): lite profile for users who want only basic remote control and no emergency lockdown.
 - `se` (`se*` device IDs): `s` + emergency lockdown security features.
@@ -8,7 +8,7 @@ Cordyceps has five intentionally distinct agent profiles:
 - `e` (`e*` device IDs): `t` + emergency lockdown + stricter local security model.
 - `a` (`a*` device IDs): admin profile with broad operations and deep system tooling.
 
-## Command Surface Matrix
+## Strain Command Surface Matrix
 
 ### `s` (lite)
 
@@ -38,7 +38,7 @@ Cordyceps has five intentionally distinct agent profiles:
 
 ## Capabilities
 
-Each family advertises a profile capability marker:
+Each strain family advertises a profile capability marker:
 
 - `s`: `profile_s`
 - `se`: `profile_se`
@@ -46,4 +46,4 @@ Each family advertises a profile capability marker:
 - `e`: `profile_e`
 - `a`: `profile_a`
 
-The server uses these markers (with device ID prefix fallback) to enforce profile-specific command routing policy.
+The server uses these markers (with device ID prefix fallback) to enforce strain-specific command routing policy.

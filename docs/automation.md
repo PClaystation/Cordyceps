@@ -1,6 +1,6 @@
-# Automation Guide
+# Colony Automation Guide
 
-This repo now includes the following GitHub automation workflows:
+This repo includes the following GitHub automation workflows to keep the colony healthy:
 
 - `.github/workflows/ci.yml`
   - PR/main checks for:
@@ -39,13 +39,13 @@ This repo now includes the following GitHub automation workflows:
 
 ## Required Repository Settings
 
-For a low-maintenance setup, configure branch protection for `main` to require at least:
+For a low-maintenance, self-sustaining setup, configure branch protection for `main` to require at least:
 
 - `CI / Server (typecheck + test)`
 - `CI / Go (...)` matrix jobs
 - `Security` workflow jobs you want as required gates
 
-## Health Check Configuration
+## Colony Health Check Configuration
 
 Configure these in GitHub repo settings:
 

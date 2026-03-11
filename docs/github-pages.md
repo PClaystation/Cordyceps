@@ -1,6 +1,6 @@
-# GitHub Pages Setup (PWA Client)
+# GitHub Pages Setup (PWA Canopy)
 
-GitHub Pages can host only the client UI. The Cordyceps server and agent still run on your own host.
+GitHub Pages can host only the canopy UI. The Cordyceps server core and node agents still run on your own host.
 
 ## 1. Server-side CORS
 
@@ -23,7 +23,7 @@ In GitHub Settings -> Pages:
 
 Push to `main` and wait for workflow to deploy.
 
-## 3. Open the web app
+## 3. Open the canopy web app
 
 Project Pages URL pattern:
 

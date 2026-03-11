@@ -1,14 +1,14 @@
-# Cordyceps Remote Device Control MVP
+# Cordyceps Remote Device Control
 
-Phone-driven remote command system:
+Phone-driven mycelium command platform:
 
-- iPhone Shortcut captures speech as text and sends it to server
-- Built-in PWA client (`/app`) for iPhone/home-screen use
+- iPhone Shortcut captures speech as text and injects it into the colony core
+- Built-in PWA canopy (`/app`) for iPhone/home-screen use
 - Server parses and routes strict typed commands
-- Windows agent receives typed command envelopes over outbound WSS
-- Agent executes allowlisted actions only
+- Windows node agents receive typed command envelopes over outbound WSS
+- Node agents execute allowlisted actions only
 
-## Implemented MVP Scope
+## Current Colony Capabilities
 
 - `POST /api/command` with deterministic parser and auth
 - `POST /api/update` for one-button remote agent updates
@@ -46,21 +46,21 @@ Phone-driven remote command system:
     - `SYSTEM_INFO`
   - `AGENT_UPDATE` (via `POST /api/update`)
 
-## Repository Layout
+## Colony Layout
 
 - `server/` Node.js + TypeScript dispatcher
-- `agent/` Go Windows agent (single binary)
-- `s1/` Go Windows lite agent family (`s*` IDs; basic control only, no emergency lockdown)
-- `se1/` Go Windows lite+emergency agent family (`se*` IDs; `s` surface + emergency lockdown)
-- `t1/` Go Windows standard remote-control family (`t*` IDs; regular full remote control)
-- `e1/` Go Windows secure+emergency family (`e*` IDs; `t` + emergency lockdown + stricter local allowlist security)
-- `a1/` Go Windows admin family (`a*` IDs; broad system operations)
+- `agent/` Go Windows node agent (single binary)
+- `s1/` Go Windows lite strain family (`s*` IDs; basic control only, no emergency lockdown)
+- `se1/` Go Windows lite+emergency strain family (`se*` IDs; `s` surface + emergency lockdown)
+- `t1/` Go Windows standard remote-control strain family (`t*` IDs; regular full remote control)
+- `e1/` Go Windows secure+emergency strain family (`e*` IDs; `t` + emergency lockdown + stricter local allowlist security)
+- `a1/` Go Windows admin strain family (`a*` IDs; broad system operations)
 - `docs/iphone-shortcut.md` iPhone Shortcut wiring
-- `docs/agent-profiles.md` canonical profile matrix and command-surface policy
+- `docs/agent-profiles.md` canonical strain matrix and command-surface policy
 
-## Agent Profiles
+## Agent Strains
 
-Canonical profile intent:
+Canonical strain intent:
 
 - `s`: super-basic lite profile; no emergency lockdown.
 - `se`: `s` + emergency lockdown security.
@@ -68,11 +68,11 @@ Canonical profile intent:
 - `e`: `t` + emergency lockdown + stricter security behavior.
 - `a`: admin profile with widest control surface.
 
-The full command-surface matrix is documented in [docs/agent-profiles.md](docs/agent-profiles.md).
+The full strain command-surface matrix is documented in [docs/agent-profiles.md](docs/agent-profiles.md).
 
-## Command Language (Phone -> Server)
+## Spore Command Language (Phone -> Server)
 
-External format:
+Command format:
 
 - `<target> <action> [argument]`
 
@@ -119,7 +119,7 @@ Examples:
 Notes:
 
 - parser lowercases and normalizes spaces
-- `all` is intentionally restricted to `ping` in this MVP
+- `all` is intentionally restricted to `ping` to avoid accidental colony-wide actions
 - `volume up/down`, `next`, and `previous` support optional numeric repeats (`1-20`)
 - app launch verbs supported: `open`, `launch`, `start`
 - emergency command requires explicit confirmation (`panic confirm`, `lockdown confirm`, or `emergency confirm`)
@@ -127,7 +127,7 @@ Notes:
 - admin commands must use `admin ...` and are dispatched only to devices that advertise `admin_ops` capability (A1 family)
 - server enforces profile routing policy (`s`, `se`, `t`, `e`, `a`) using capability markers (`profile_s`, `profile_se`, `profile_t`, `profile_e`, `profile_a`) with device-ID prefix fallback
 
-## Server Setup
+## Mycelium Core Setup
 
 1. Install Node.js 20+
 2. Create env file:
@@ -183,11 +183,11 @@ Production:
 - run behind TLS reverse proxy (Nginx/Caddy/Cloudflare Tunnel)
 - expose HTTPS for `/api/*` and WSS for `/ws/agent`
 
-## Agent Setup (Windows)
+## Node Setup (Windows)
 
-### Fastest way to add another device (T1 agent)
+### Fastest way to colonize another device (T1 agent)
 
-Use this for the `t` profile: the regular remote-control model (no emergency-lockdown features).
+Use this for the `t` strain: the regular remote-control model (no emergency-lockdown features).
 
 1. Build a USB-ready T1 agent once (on any machine with Go):
 
@@ -215,9 +215,9 @@ Management:
 - `.\manage-t1-agent.ps1 -Action status`
 - `.\manage-t1-agent.ps1 -Action uninstall`
 
-### Emergency-capable device family (E1 agent)
+### Emergency-capable strain (E1 agent)
 
-Use this for the `e` profile: the regular `t` remote-control surface plus emergency lockdown and stricter local safety controls.
+Use this for the `e` strain: the regular `t` remote-control surface plus emergency lockdown and stricter local safety controls.
 
 1. Build a USB-ready E1 agent once:
 
@@ -236,9 +236,9 @@ Management:
 - `.\manage-e1-agent.ps1 -Action status`
 - `.\manage-e1-agent.ps1 -Action uninstall`
 
-### Safer device family (S1 agent)
+### Lite safety strain (S1 agent)
 
-Use this for the `s` profile: super-basic control for users who do not want deep remote control and do not want emergency lockdown enabled.
+Use this for the `s` strain: super-basic control for users who do not want deep remote control and do not want emergency lockdown enabled.
 
 1. Build a USB-ready S1 agent once:
 
@@ -257,9 +257,9 @@ Management:
 - `.\manage-s1-agent.ps1 -Action status`
 - `.\manage-s1-agent.ps1 -Action uninstall`
 
-### Safest device family (SE1 agent)
+### Lite+emergency safety strain (SE1 agent)
 
-Use this for the `se` profile: the `s` lite surface plus emergency lockdown security.
+Use this for the `se` strain: the `s` lite surface plus emergency lockdown security.
 
 1. Build a USB-ready SE1 agent once:
 
@@ -278,9 +278,9 @@ Management:
 - `.\manage-se1-agent.ps1 -Action status`
 - `.\manage-se1-agent.ps1 -Action uninstall`
 
-### Admin-capable device family (A1 agent)
+### Admin strain (A1 agent)
 
-Use this for the `a` profile: admin-level remote control with broad system operations.
+Use this for the `a` strain: admin-level remote control with broad system operations.
 
 1. Build a USB-ready A1 agent once:
 
@@ -346,7 +346,7 @@ Management:
 
 See [docs/iphone-shortcut.md](docs/iphone-shortcut.md).
 
-## Native iOS App
+## Native iOS Field App
 
 A native SwiftUI iPhone app is available in:
 
@@ -356,7 +356,7 @@ Open `ios/CordycepsRemote/CordycepsRemote.xcodeproj` in Xcode and follow:
 
 - [ios/CordycepsRemote/README.md](ios/CordycepsRemote/README.md)
 
-## PWA Client (Recommended)
+## PWA Canopy (Recommended)
 
 Open this URL on iPhone:
 
@@ -378,7 +378,7 @@ Notes:
 - Do not use `:8080` with HTTPS in the browser/PWA URL
 - The token is stored in browser local storage on that device
 
-### GitHub Pages Client
+### GitHub Pages Canopy
 
 GitHub Pages can host the client only (not your Node server/agent).
 
@@ -392,7 +392,7 @@ GitHub Pages can host the client only (not your Node server/agent).
 
 Detailed guide: [docs/github-pages.md](docs/github-pages.md)
 
-## API Quick Test
+## API Pulse Test
 
 Health:
 
@@ -433,7 +433,7 @@ Notes:
 - Agent still verifies `sha256` locally before replacing itself.
 - `queue_if_offline` is only valid when `target` is a single device ID (not `all`).
 
-## Remote Update Workflow
+## Remote Propagation Workflow
 
 1. Install this updater-capable agent build once on each PC (manual one-time step).
 2. Build new `cordyceps-agent.exe` and host it at an HTTPS URL reachable by agents.
@@ -452,7 +452,7 @@ Default behavior:
 - server rejects non-HTTPS package URLs unless `ENFORCE_HTTPS_UPDATE_URL=false`
 - agent downloads, verifies hash, stages replacement, then restarts itself
 
-## Security Defaults in This Build
+## Built-in Guardrails
 
 - no inbound ports required on Windows devices
 - per-device token for agent WSS auth
@@ -461,7 +461,7 @@ Default behavior:
 - remote update requires HTTPS URL (default) + SHA256 verification on agent
 - normal user context for main agent
 
-## Automation (Self-Maintaining)
+## Automation (Self-Maintaining Colony)
 
 This repo includes GitHub automation for CI, security scanning, dependency updates, release artifacts, and operational health checks:
 
@@ -476,7 +476,7 @@ Configuration details (required variables/secrets, branch protection recommendat
 
 - [docs/automation.md](docs/automation.md)
 
-## Known Gaps / Next Milestones
+## Next Mutations / Milestones
 
 - signed package verification (phase 2 hardening)
 - optional privileged helper split

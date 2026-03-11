@@ -267,6 +267,93 @@ test("scoped API key can read devices but cannot execute updates", async () => {
   }
 });
 
+test("write endpoints require application/json content-type", async () => {
+  const harness = await createHarness();
+  const { server, cleanup } = harness;
+
+  try {
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: {
+        authorization: "Bearer owner-token",
+        "content-type": "text/plain; charset=utf-8",
+      },
+      payload: "m1 ping",
+    });
+
+    assert.equal(response.statusCode, 415);
+    const body = response.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.error_code, "UNSUPPORTED_MEDIA_TYPE");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("enroll endpoint is rate limited per client identity", async () => {
+  const harness = await createHarness();
+  const { server, cleanup } = harness;
+
+  try {
+    let limitedResponse: Awaited<ReturnType<typeof server.inject>> | null = null;
+
+    for (let i = 0; i < 25; i += 1) {
+      const response = await server.inject({
+        method: "POST",
+        url: "/api/enroll",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": "198.51.100.24",
+        },
+        payload: {
+          bootstrap_token: "invalid-token",
+        },
+      });
+
+      if (response.statusCode === 429) {
+        limitedResponse = response;
+        break;
+      }
+    }
+
+    assert.ok(limitedResponse);
+    assert.equal(limitedResponse.statusCode, 429);
+    const body = limitedResponse.json();
+    assert.equal(body.error_code, "RATE_LIMITED");
+    assert.equal(typeof body.retry_after_seconds, "number");
+    assert.equal(typeof limitedResponse.headers["retry-after"], "string");
+    assert.equal(typeof limitedResponse.headers["x-ratelimit-limit"], "string");
+    assert.equal(typeof limitedResponse.headers["x-ratelimit-remaining"], "string");
+    assert.equal(typeof limitedResponse.headers["x-ratelimit-reset"], "string");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("api responses include hardening headers", async () => {
+  const harness = await createHarness();
+  const { server, cleanup } = harness;
+
+  try {
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/health",
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.headers["x-content-type-options"], "nosniff");
+    assert.equal(response.headers["x-frame-options"], "DENY");
+    assert.equal(response.headers["referrer-policy"], "no-referrer");
+    assert.equal(response.headers["permissions-policy"], "camera=(), microphone=(), geolocation=()");
+    assert.equal(response.headers["cache-control"], "no-store");
+    assert.equal(typeof response.headers["x-request-id"], "string");
+    assert.equal((response.headers["x-request-id"] as string).length > 0, true);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("admin command execution requires admin scope", async () => {
   const harness = await createHarness();
   const { server, router, cleanup } = harness;

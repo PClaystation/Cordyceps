@@ -10,6 +10,7 @@ import type { CommandDispatchResult, TypedCommand } from "../types/protocol";
 import { randomToken, sha256Hex } from "../utils/crypto";
 import { makeRequestId } from "../utils/id";
 import { log } from "../utils/logger";
+import { FixedWindowRateLimiter } from "../utils/rateLimiter";
 import { inspectPackageFromUrl, PackageInspectionError } from "../update/packageInspector";
 import {
   inferDesignationPrefixFromPackageUrl,
@@ -102,6 +103,44 @@ const DEFAULT_HISTORY_LIMIT = 100;
 const MAX_HISTORY_LIMIT = 500;
 const MAX_SSE_TOKEN_LENGTH = 512;
 const SSE_PING_INTERVAL_MS = 20_000;
+const JSON_CONTENT_TYPE_RE = /^\s*application\/(?:[a-z0-9.+-]+\+)?json\s*(?:;|$)/i;
+const GROUP_COMMAND_PATH_RE = /^\/api\/groups\/[^/]+\/command$/;
+const GROUP_UPSERT_PATH_RE = /^\/api\/groups\/[^/]+$/;
+const DEVICE_RENAME_PATH_RE = /^\/api\/devices\/[^/]+\/display-name$/;
+
+interface RateLimitRule {
+  id: string;
+  limit: number;
+  windowMs: number;
+  message: string;
+}
+
+const RATE_LIMIT_RULES = {
+  enroll: {
+    id: "enroll",
+    limit: 20,
+    windowMs: 60_000,
+    message: "Too many enrollment attempts from this client",
+  } satisfies RateLimitRule,
+  auth: {
+    id: "auth",
+    limit: 120,
+    windowMs: 60_000,
+    message: "Too many authentication management requests",
+  } satisfies RateLimitRule,
+  dispatch: {
+    id: "dispatch",
+    limit: 240,
+    windowMs: 60_000,
+    message: "Too many command/update dispatch requests",
+  } satisfies RateLimitRule,
+  events: {
+    id: "events",
+    limit: 30,
+    windowMs: 60_000,
+    message: "Too many event stream connection attempts",
+  } satisfies RateLimitRule,
+} as const;
 
 const API_SCOPES: ApiScope[] = [
   "devices:read",
@@ -191,6 +230,103 @@ const STANDARD_PROFILE_EXTRA_COMMANDS = new Set([
 
 function makeLogId(requestId: string, deviceId: string): string {
   return `${requestId}:${deviceId}`;
+}
+
+function requestPath(url: string): string {
+  const queryIndex = url.indexOf("?");
+  if (queryIndex < 0) {
+    return url;
+  }
+
+  return url.slice(0, queryIndex);
+}
+
+function resolveClientIdentity(request: FastifyRequest): string {
+  const forwarded = request.headers["x-forwarded-for"];
+  const forwardedValue = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  if (typeof forwardedValue === "string") {
+    const first = forwardedValue.split(",")[0]?.trim() ?? "";
+    if (first) {
+      return first.slice(0, 80);
+    }
+  }
+
+  if (typeof request.ip === "string" && request.ip.trim()) {
+    return request.ip.trim().slice(0, 80);
+  }
+
+  const remoteAddress = request.socket.remoteAddress?.trim() ?? "";
+  if (remoteAddress) {
+    return remoteAddress.slice(0, 80);
+  }
+
+  return "unknown";
+}
+
+function resolveRateLimitRule(method: string, path: string): RateLimitRule | null {
+  if (method === "POST" && path === "/api/enroll") {
+    return RATE_LIMIT_RULES.enroll;
+  }
+
+  if (path.startsWith("/api/auth/")) {
+    return RATE_LIMIT_RULES.auth;
+  }
+
+  if (method === "GET" && path === "/api/events") {
+    return RATE_LIMIT_RULES.events;
+  }
+
+  if (
+    (method === "POST" && (path === "/api/command" || path === "/api/update" || GROUP_COMMAND_PATH_RE.test(path)))
+  ) {
+    return RATE_LIMIT_RULES.dispatch;
+  }
+
+  return null;
+}
+
+function isJsonContentType(value: unknown): boolean {
+  if (typeof value === "string") {
+    return JSON_CONTENT_TYPE_RE.test(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => isJsonContentType(item));
+  }
+
+  return false;
+}
+
+function requiresJsonBody(method: string, path: string): boolean {
+  if (method === "PUT" && GROUP_UPSERT_PATH_RE.test(path)) {
+    return true;
+  }
+
+  if (method !== "POST") {
+    return false;
+  }
+
+  if (path === "/api/enroll") {
+    return true;
+  }
+
+  if (path === "/api/command") {
+    return true;
+  }
+
+  if (path === "/api/update") {
+    return true;
+  }
+
+  if (path === "/api/auth/keys") {
+    return true;
+  }
+
+  if (DEVICE_RENAME_PATH_RE.test(path)) {
+    return true;
+  }
+
+  return GROUP_COMMAND_PATH_RE.test(path);
 }
 
 function unauthorized(reply: FastifyReply): void {
@@ -820,6 +956,75 @@ function writeSseEvent(reply: FastifyReply, event: RealtimeEvent): void {
 }
 
 export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps): Promise<void> {
+  const rateLimiter = new FixedWindowRateLimiter({
+    maxEntries: 25_000,
+    pruneEveryHits: 200,
+  });
+
+  server.addHook("onRequest", async (request, reply) => {
+    reply.header("X-Request-Id", request.id);
+
+    const path = requestPath(request.url);
+    const rule = resolveRateLimitRule(request.method, path);
+    if (rule) {
+      const identity = resolveClientIdentity(request);
+      const limit = rateLimiter.hit({
+        key: `${rule.id}:${identity}`,
+        limit: rule.limit,
+        windowMs: rule.windowMs,
+      });
+
+      reply.header("X-RateLimit-Limit", String(limit.limit));
+      reply.header("X-RateLimit-Remaining", String(limit.remaining));
+      reply.header("X-RateLimit-Reset", String(Math.ceil(limit.resetAt / 1000)));
+
+      if (!limit.allowed) {
+        const retryAfterSeconds = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
+        reply.header("Retry-After", String(retryAfterSeconds));
+        reply.code(429).send({
+          ok: false,
+          message: rule.message,
+          error_code: "RATE_LIMITED",
+          retry_after_seconds: retryAfterSeconds,
+        });
+        return;
+      }
+    }
+
+    if (requiresJsonBody(request.method, path) && !isJsonContentType(request.headers["content-type"])) {
+      reply.code(415).send({
+        ok: false,
+        message: "Content-Type must be application/json",
+        error_code: "UNSUPPORTED_MEDIA_TYPE",
+      });
+      return;
+    }
+  });
+
+  server.addHook("onSend", async (request, reply, payload) => {
+    if (!reply.hasHeader("X-Content-Type-Options")) {
+      reply.header("X-Content-Type-Options", "nosniff");
+    }
+
+    if (!reply.hasHeader("X-Frame-Options")) {
+      reply.header("X-Frame-Options", "DENY");
+    }
+
+    if (!reply.hasHeader("Referrer-Policy")) {
+      reply.header("Referrer-Policy", "no-referrer");
+    }
+
+    if (!reply.hasHeader("Permissions-Policy")) {
+      reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    }
+
+    if (requestPath(request.url).startsWith("/api/") && !reply.hasHeader("Cache-Control")) {
+      reply.header("Cache-Control", "no-store");
+    }
+
+    return payload;
+  });
+
   server.get("/api/health", async () => {
     const dbStats = deps.db.healthSnapshot();
 

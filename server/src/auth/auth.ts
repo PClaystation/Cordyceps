@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
+const MAX_BEARER_TOKEN_LENGTH = 512;
+
 export function extractBearerToken(authorizationHeader?: string | string[]): string | null {
   if (!authorizationHeader) {
     return null;
@@ -28,7 +30,12 @@ export function extractBearerToken(authorizationHeader?: string | string[]): str
     return null;
   }
 
-  return token || null;
+  const normalizedToken = token.trim();
+  if (!normalizedToken || normalizedToken.length > MAX_BEARER_TOKEN_LENGTH) {
+    return null;
+  }
+
+  return normalizedToken;
 }
 
 export function constantTimeEqual(left: string, right: string): boolean {
