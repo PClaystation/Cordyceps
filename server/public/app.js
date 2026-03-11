@@ -3,6 +3,9 @@ const tokenInput = document.getElementById("tokenInput");
 const saveTokenBtn = document.getElementById("saveTokenBtn");
 const testTokenBtn = document.getElementById("testTokenBtn");
 const loadDevicesBtn = document.getElementById("loadDevicesBtn");
+const renameDeviceInput = document.getElementById("renameDeviceInput");
+const renameDisplayNameInput = document.getElementById("renameDisplayNameInput");
+const renameDeviceBtn = document.getElementById("renameDeviceBtn");
 const deviceSummary = document.getElementById("deviceSummary");
 const deviceCards = document.getElementById("deviceCards");
 const deviceList = document.getElementById("deviceList");
@@ -622,6 +625,9 @@ function setTarget(deviceId) {
     updateTargetInput.value = deviceId;
     localStorage.setItem(UPDATE_TARGET_KEY, deviceId);
   }
+  if (renameDeviceInput) {
+    renameDeviceInput.value = deviceId;
+  }
 }
 
 function renderDeviceCards(devices) {
@@ -638,12 +644,13 @@ function renderDeviceCards(devices) {
 
   for (const device of devices) {
     const deviceId = String(device.device_id || "").trim();
+    const displayName = String(device.display_name || "").trim();
     const status = String(device.status || "unknown").trim().toLowerCase();
 
     const card = document.createElement("article");
     card.className = "device-card";
     const heading = document.createElement("h3");
-    heading.textContent = deviceId || "unknown-device";
+    heading.textContent = displayName || deviceId || "unknown-device";
 
     const meta = document.createElement("div");
     meta.className = "meta";
@@ -658,6 +665,12 @@ function renderDeviceCards(devices) {
     meta.appendChild(statusPill);
     meta.appendChild(seen);
     card.appendChild(heading);
+    if (displayName && displayName.toLowerCase() !== deviceId.toLowerCase()) {
+      const identity = document.createElement("p");
+      identity.className = "muted";
+      identity.textContent = deviceId;
+      card.appendChild(identity);
+    }
     card.appendChild(meta);
 
     const useButton = document.createElement("button");
@@ -674,9 +687,27 @@ function renderDeviceCards(devices) {
     deviceCards.appendChild(card);
 
     const li = document.createElement("li");
-    li.textContent = `${deviceId} - ${status}`;
+    li.textContent = `${displayName || deviceId} - ${status}`;
     deviceList.appendChild(li);
   }
+}
+
+async function renameDevice() {
+  if (!renameDeviceInput || !renameDisplayNameInput) {
+    throw new Error("Rename controls are not available in this app build.");
+  }
+
+  const deviceId = (renameDeviceInput.value || "").trim().toLowerCase();
+  const displayName = (renameDisplayNameInput.value || "").trim();
+  if (!deviceId) {
+    throw new Error("Device ID is required.");
+  }
+
+  const { data, latencyMs } = await apiRequest(`/api/devices/${encodeURIComponent(deviceId)}/display-name`, {
+    display_name: displayName,
+  });
+  await loadDevices({ silent: true });
+  setResult(data, { requestId: deviceId, latencyMs });
 }
 
 async function loadDevices(options = {}) {
@@ -994,6 +1025,24 @@ function init() {
       setResult(message, { isError: true });
     }
   });
+
+  if (renameDeviceBtn) {
+    renameDeviceBtn.addEventListener("click", async () => {
+      try {
+        renameDeviceBtn.disabled = true;
+        renameDeviceBtn.textContent = "Saving...";
+        await renameDevice();
+        setAuthHint("Shared device name saved.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setAuthHint(message, true);
+        setResult(message, { isError: true });
+      } finally {
+        renameDeviceBtn.disabled = false;
+        renameDeviceBtn.textContent = "Save Name";
+      }
+    });
+  }
 
   sendBtn.addEventListener("click", async () => {
     try {

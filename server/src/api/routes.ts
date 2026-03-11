@@ -49,6 +49,10 @@ interface UpdateRequestBody {
   size_bytes?: unknown;
 }
 
+interface RenameDeviceBody {
+  display_name?: string;
+}
+
 const MAX_TEXT_LEN = 4096;
 const MAX_SOURCE_LEN = 40;
 const MAX_UPDATE_VERSION_LEN = 64;
@@ -216,6 +220,14 @@ function asUpdateBody(body: unknown): UpdateRequestBody {
   return body as UpdateRequestBody;
 }
 
+function asRenameDeviceBody(body: unknown): RenameDeviceBody {
+  if (!body || typeof body !== "object") {
+    return {};
+  }
+
+  return body as RenameDeviceBody;
+}
+
 function normalizeUpdateTarget(candidate: unknown): string {
   return asTrimmedString(candidate).toLowerCase();
 }
@@ -350,6 +362,40 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       ok: true,
       devices: deps.db.listDevices(),
     };
+  });
+
+  server.post("/api/devices/:deviceId/display-name", async (request, reply) => {
+    if (!isPhoneAuthorized(request, deps.config)) {
+      unauthorized(reply);
+      return;
+    }
+
+    const params = request.params as { deviceId?: string } | undefined;
+    const deviceId = asTrimmedString(params?.deviceId).toLowerCase();
+    if (!deviceId || !/^[a-z0-9_-]{2,32}$/.test(deviceId)) {
+      reply.code(400).send({
+        ok: false,
+        message: "device_id must be 2-32 chars and use a-z, 0-9, _ or -",
+      });
+      return;
+    }
+
+    const body = asRenameDeviceBody(request.body);
+    const displayName = normalizeOptionalText(body.display_name, 80);
+    if (!deps.db.updateDeviceDisplayName(deviceId, displayName)) {
+      reply.code(404).send({
+        ok: false,
+        message: `Unknown device: ${deviceId}`,
+        error_code: "UNKNOWN_DEVICE",
+      });
+      return;
+    }
+
+    reply.send({
+      ok: true,
+      device: deps.db.getDevice(deviceId),
+      message: displayName ? `Saved name for ${deviceId}` : `Cleared name for ${deviceId}`,
+    });
   });
 
   server.post("/api/enroll", async (request, reply) => {

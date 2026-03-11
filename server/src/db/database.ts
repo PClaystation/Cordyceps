@@ -227,6 +227,26 @@ export class Database {
       .all() as DeviceRecord[];
   }
 
+  public updateDeviceDisplayName(deviceId: string, displayName?: string): boolean {
+    const now = new Date().toISOString();
+    const result = this.db
+      .prepare(
+        `
+          UPDATE devices
+          SET display_name = @display_name,
+              updated_at = @updated_at
+          WHERE device_id = @device_id
+        `,
+      )
+      .run({
+        device_id: deviceId,
+        display_name: displayName ?? null,
+        updated_at: now,
+      });
+
+    return result.changes > 0;
+  }
+
   public markDeviceOnline(input: {
     deviceId: string;
     version?: string;

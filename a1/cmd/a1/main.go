@@ -63,6 +63,7 @@ func main() {
 	var (
 		serverURLFlag      string
 		deviceIDFlag       string
+		displayNameFlag    string
 		bootstrapTokenFlag string
 		versionFlag        string
 		configPathFlag     string
@@ -73,6 +74,7 @@ func main() {
 
 	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("A1_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://jarvis.example)")
 	flag.StringVar(&deviceIDFlag, "device-id", "", "Device ID (e.g. a1)")
+	flag.StringVar(&displayNameFlag, "display-name", strings.TrimSpace(os.Getenv("A1_DISPLAY_NAME")), "Shared display name shown by remotes for this device")
 	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", resolveStringSetting("A1_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")
 	flag.StringVar(&versionFlag, "version", defaultVersion, "Agent version string")
 	flag.StringVar(&configPathFlag, "config", "", "Path to agent config file")
@@ -133,7 +135,7 @@ func main() {
 			log.Fatalf("load config: %v", err)
 		}
 
-		cfg, err = firstRunEnroll(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(bootstrapTokenFlag), strings.TrimSpace(versionFlag))
+		cfg, err = firstRunEnroll(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), strings.TrimSpace(versionFlag))
 		if err != nil {
 			log.Fatalf("first-run enrollment failed: %v", err)
 		}
@@ -184,7 +186,7 @@ func main() {
 	runLoop(ctx, cfg, cfgPath)
 }
 
-func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, bootstrapToken string, version string) (*config.Config, error) {
+func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, displayNameInput string, bootstrapToken string, version string) (*config.Config, error) {
 	if serverBaseURL == "" {
 		return nil, errors.New("missing server URL; pass --server-url or set A1_SERVER_URL")
 	}
@@ -217,9 +219,13 @@ func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, 
 
 	base := normalizeBaseURL(serverBaseURL)
 
-	displayName := deviceID
-	if autoDesignate {
-		displayName = "a-agent"
+	displayName := strings.TrimSpace(displayNameInput)
+	if displayName == "" {
+		if autoDesignate {
+			displayName = "a-agent"
+		} else {
+			displayName = deviceID
+		}
 	}
 
 	requestPayload := enrollRequest{

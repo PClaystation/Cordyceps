@@ -57,6 +57,7 @@ func main() {
 	var (
 		serverURLFlag      string
 		deviceIDFlag       string
+		displayNameFlag    string
 		bootstrapTokenFlag string
 		versionFlag        string
 		configPathFlag     string
@@ -67,6 +68,7 @@ func main() {
 
 	flag.StringVar(&serverURLFlag, "server-url", strings.TrimSpace(os.Getenv("CORDYCEPS_SERVER_URL")), "Server base URL (e.g. https://cordyceps.example)")
 	flag.StringVar(&deviceIDFlag, "device-id", "", "Device ID (e.g. m1)")
+	flag.StringVar(&displayNameFlag, "display-name", strings.TrimSpace(os.Getenv("CORDYCEPS_DISPLAY_NAME")), "Shared display name shown by remotes for this device")
 	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", strings.TrimSpace(os.Getenv("CORDYCEPS_BOOTSTRAP_TOKEN")), "Bootstrap token for first-run enrollment")
 	flag.StringVar(&versionFlag, "version", defaultVersion, "Agent version string")
 	flag.StringVar(&configPathFlag, "config", "", "Path to agent config file")
@@ -121,7 +123,7 @@ func main() {
 			log.Fatalf("load config: %v", err)
 		}
 
-		cfg, err = firstRunEnroll(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(bootstrapTokenFlag), strings.TrimSpace(versionFlag))
+		cfg, err = firstRunEnroll(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), strings.TrimSpace(versionFlag))
 		if err != nil {
 			log.Fatalf("first-run enrollment failed: %v", err)
 		}
@@ -172,7 +174,7 @@ func main() {
 	runLoop(ctx, cfg, cfgPath)
 }
 
-func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, bootstrapToken string, version string) (*config.Config, error) {
+func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, displayNameInput string, bootstrapToken string, version string) (*config.Config, error) {
 	if serverBaseURL == "" {
 		return nil, errors.New("missing server URL; pass --server-url or set CORDYCEPS_SERVER_URL")
 	}
@@ -203,12 +205,17 @@ func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, 
 		deviceID = config.SanitizeDeviceID("m-" + deviceID)
 	}
 
+	displayName := strings.TrimSpace(displayNameInput)
+	if displayName == "" {
+		displayName = deviceID
+	}
+
 	base := normalizeBaseURL(serverBaseURL)
 
 	requestPayload := enrollRequest{
 		BootstrapToken: bootstrapToken,
 		DeviceID:       deviceID,
-		DisplayName:    deviceID,
+		DisplayName:    displayName,
 		Version:        version,
 		Hostname:       hostname,
 		Username:       username,

@@ -7,6 +7,8 @@ param(
 
   [string]$DeviceId = "",
 
+  [string]$DisplayName = "",
+
   [string]$AgentExePath = ".\a1-agent.exe",
 
   [switch]$Foreground
@@ -34,6 +36,10 @@ if ($DeviceId.Trim().Length -gt 0) {
   $args += @("--device-id", $DeviceId.Trim())
 }
 
+if ($DisplayName.Trim().Length -gt 0) {
+  $args += @("--display-name", $DisplayName.Trim())
+}
+
 if ($Foreground.IsPresent) {
   $args += "--foreground"
 }
@@ -49,5 +55,6 @@ if ($Foreground.IsPresent) {
 }
 
 Write-Host "Done. Agent started."
+Write-Host "If DisplayName was provided, every remote using this server will show it."
 Write-Host "If DeviceId was omitted, the server auto-designates (for example: a1, a2, ...)."
 Write-Host "Config path: $env:APPDATA\A1Agent\config.json"

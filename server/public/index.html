@@ -35,6 +35,13 @@
           <button id="loadDevicesBtn" type="button">Load Devices</button>
           <span id="deviceSummary" class="muted">No data yet</span>
         </div>
+        <label for="renameDeviceInput">Shared Device Name</label>
+        <div class="row">
+          <input id="renameDeviceInput" type="text" placeholder="t1" />
+          <input id="renameDisplayNameInput" type="text" placeholder="t1-Molly" />
+          <button id="renameDeviceBtn" type="button">Save Name</button>
+        </div>
+        <p class="muted">Saved on the server so every remote sees the same label. Leave the name empty to clear it.</p>
         <div id="deviceCards" class="device-cards"></div>
         <ul id="deviceList" class="list"></ul>
       </section>

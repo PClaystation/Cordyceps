@@ -7,6 +7,8 @@ param(
 
   [string]$DeviceId = "",
 
+  [string]$DisplayName = "",
+
   [string]$AgentExePath = ".\jarvis-agent.exe",
 
   [switch]$Foreground
@@ -34,6 +36,10 @@ if ($DeviceId.Trim().Length -gt 0) {
   $args += @("--device-id", $DeviceId.Trim())
 }
 
+if ($DisplayName.Trim().Length -gt 0) {
+  $args += @("--display-name", $DisplayName.Trim())
+}
+
 if ($Foreground.IsPresent) {
   $args += "--foreground"
 }
@@ -49,4 +55,5 @@ if ($Foreground.IsPresent) {
 }
 
 Write-Host "Done. Agent started."
+Write-Host "If DisplayName was provided, every remote using this server will show it."
 Write-Host "Config path: $env:APPDATA\JarvisAgent\config.json"
