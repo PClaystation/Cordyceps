@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import BetterSqlite3 from "better-sqlite3";
 
 const DEFAULT_CORS_ALLOWED_ORIGINS = [
   "https://pclaystation.github.io",
@@ -12,6 +13,7 @@ const PHONE_PLACEHOLDER = "change-me-phone-token";
 const BOOTSTRAP_PLACEHOLDER = "change-me-bootstrap-token";
 
 type SecretSource = "env" | "secrets_file" | "generated";
+type PathSource = "env" | "default" | "legacy";
 
 interface StoredSecretsFile {
   phone_api_token: string;
@@ -106,10 +108,84 @@ interface ResolvedSecrets {
   secretsPath: string;
   phoneApiTokenSource: SecretSource;
   agentBootstrapTokenSource: SecretSource;
+  secretsPathSource: PathSource;
 }
 
-function resolveSecrets(sqlitePath: string): ResolvedSecrets {
-  const secretsPath = process.env.SECRETS_PATH?.trim() || path.join(path.dirname(sqlitePath), "secrets.json");
+function resolveServerRoot(): string {
+  return path.resolve(__dirname, "..", "..");
+}
+
+function resolveConfiguredPath(rawValue: string, serverRoot: string): string {
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  if (path.isAbsolute(trimmed)) {
+    return trimmed;
+  }
+
+  return path.resolve(serverRoot, trimmed);
+}
+
+function tryReadDeviceCount(filePath: string): number | null {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+
+  let db: InstanceType<typeof BetterSqlite3> | null = null;
+  try {
+    db = new BetterSqlite3(filePath, { readonly: true, fileMustExist: true });
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'devices'")
+      .get() as { name?: string } | undefined;
+    if (!table?.name) {
+      return 0;
+    }
+
+    const row = db.prepare("SELECT COUNT(1) AS count FROM devices").get() as { count?: number } | undefined;
+    return typeof row?.count === "number" ? row.count : 0;
+  } catch {
+    return null;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      // ignore close failures during config resolution
+    }
+  }
+}
+
+function resolveDefaultSqlitePath(serverRoot: string): { path: string; source: PathSource } {
+  const preferredPath = path.join(serverRoot, "data", "cordyceps.db");
+  const legacyPath = path.join(process.cwd(), "data", "cordyceps.db");
+  if (preferredPath === legacyPath) {
+    return { path: preferredPath, source: "default" };
+  }
+
+  const preferredCount = tryReadDeviceCount(preferredPath);
+  const legacyCount = tryReadDeviceCount(legacyPath);
+
+  if ((legacyCount ?? 0) > (preferredCount ?? 0)) {
+    return { path: legacyPath, source: "legacy" };
+  }
+
+  if (fs.existsSync(preferredPath)) {
+    return { path: preferredPath, source: "default" };
+  }
+
+  if (fs.existsSync(legacyPath)) {
+    return { path: legacyPath, source: "legacy" };
+  }
+
+  return { path: preferredPath, source: "default" };
+}
+
+function resolveSecrets(sqlitePath: string, serverRoot: string): ResolvedSecrets {
+  const explicitSecretsPath = process.env.SECRETS_PATH?.trim();
+  const secretsPath = explicitSecretsPath
+    ? resolveConfiguredPath(explicitSecretsPath, serverRoot)
+    : path.join(path.dirname(sqlitePath), "secrets.json");
   const existing = tryReadSecretsFile(secretsPath);
 
   const explicitPhoneToken = process.env.PHONE_API_TOKEN;
@@ -167,6 +243,7 @@ function resolveSecrets(sqlitePath: string): ResolvedSecrets {
     secretsPath,
     phoneApiTokenSource,
     agentBootstrapTokenSource,
+    secretsPathSource: explicitSecretsPath ? "env" : "default",
   };
 }
 
@@ -178,7 +255,9 @@ export interface AppConfig {
   agentBootstrapToken: string;
   agentBootstrapTokenSource: SecretSource;
   secretsPath: string;
+  secretsPathSource: PathSource;
   sqlitePath: string;
+  sqlitePathSource: PathSource;
   commandTimeoutMs: number;
   maxPendingCommands: number;
   heartbeatTtlMs: number;
@@ -197,8 +276,12 @@ export interface AppConfig {
 export function loadConfig(): AppConfig {
   const host = process.env.HOST ?? "0.0.0.0";
   const port = readInt("PORT", 8080);
-  const sqlitePath = process.env.SQLITE_PATH ?? path.join(process.cwd(), "data", "cordyceps.db");
-  const secrets = resolveSecrets(sqlitePath);
+  const serverRoot = resolveServerRoot();
+  const explicitSqlitePath = process.env.SQLITE_PATH?.trim();
+  const sqliteResolution = explicitSqlitePath
+    ? { path: resolveConfiguredPath(explicitSqlitePath, serverRoot), source: "env" as const }
+    : resolveDefaultSqlitePath(serverRoot);
+  const secrets = resolveSecrets(sqliteResolution.path, serverRoot);
   const commandTimeoutMs = readInt("COMMAND_TIMEOUT_MS", 5000);
   const maxPendingCommands = readInt("MAX_PENDING_COMMANDS", 1000);
   const heartbeatTtlMs = readInt("HEARTBEAT_TTL_MS", 90000);
@@ -221,7 +304,9 @@ export function loadConfig(): AppConfig {
     agentBootstrapToken: secrets.agentBootstrapToken,
     agentBootstrapTokenSource: secrets.agentBootstrapTokenSource,
     secretsPath: secrets.secretsPath,
-    sqlitePath,
+    secretsPathSource: secrets.secretsPathSource,
+    sqlitePath: sqliteResolution.path,
+    sqlitePathSource: sqliteResolution.source,
     commandTimeoutMs,
     maxPendingCommands,
     heartbeatTtlMs,

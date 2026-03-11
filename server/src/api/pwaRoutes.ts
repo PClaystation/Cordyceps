@@ -10,10 +10,11 @@ interface AssetSpec {
 }
 
 function resolvePublicDir(): string {
+  const serverRoot = path.resolve(__dirname, "..", "..");
   const candidates = [
+    path.join(serverRoot, "public"),
     path.resolve(process.cwd(), "public"),
     path.resolve(process.cwd(), "server", "public"),
-    path.resolve(__dirname, "..", "..", "public"),
   ];
 
   for (const candidate of candidates) {
