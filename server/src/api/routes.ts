@@ -310,6 +310,10 @@ function inferDesignationPrefixFromPackageUrl(packageUrl: string): string | null
     return "t";
   }
 
+  if (value.includes("s1-agent")) {
+    return "s";
+  }
+
   if (value.includes("a1-agent")) {
     return "a";
   }

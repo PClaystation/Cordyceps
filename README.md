@@ -48,6 +48,7 @@ Phone-driven remote command system:
 - `server/` Node.js + TypeScript dispatcher
 - `agent/` Go Windows agent (single binary)
 - `t1/` Go Windows agent family (`t*` device IDs)
+- `s1/` Go Windows safer agent family (`s*` device IDs, keeps updater but drops sleep/sign-out/shutdown/restart)
 - `e1/` Go Windows agent family (`e*` device IDs, includes emergency lockdown command)
 - `a1/` Go Windows admin agent family (`a*` device IDs, includes deep admin commands)
 - `docs/iphone-shortcut.md` iPhone Shortcut wiring
@@ -204,6 +205,27 @@ Management:
 
 - `.\manage-e1-agent.ps1 -Action status`
 - `.\manage-e1-agent.ps1 -Action uninstall`
+
+### Safer device family (S1 agent)
+
+Use this on machines where you want the normal media/app/clipboard/notify/lock controls and remote self-update, but you do not want sleep, sign-out, shutdown, or restart exposed remotely.
+
+1. Build a USB-ready S1 agent once:
+
+```powershell
+cd s1
+.\build-s1-usb.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN"
+```
+
+2. Run `s1/dist/s1-agent-usb.exe` once on the target device.
+
+On first run it self-installs to `%LOCALAPPDATA%\S1Agent\s1-agent.exe` and auto-designates `s*` IDs when `-DeviceId` is omitted.
+`s1` keeps remote self-update support, but its command handlers intentionally omit the more destructive power/session actions from `t1`.
+
+Management:
+
+- `.\manage-s1-agent.ps1 -Action status`
+- `.\manage-s1-agent.ps1 -Action uninstall`
 
 ### Admin-capable device family (A1 agent)
 
