@@ -85,6 +85,27 @@
       </section>
 
       <section class="panel">
+        <h2>Admin Command</h2>
+        <div class="danger-zone">
+          <strong>Danger Zone</strong>
+          <p>Runs arbitrary shell commands on an admin-capable agent. Requires an authenticated token with admin scope.</p>
+        </div>
+        <label for="adminTargetInput">Admin Target</label>
+        <input id="adminTargetInput" type="text" value="a1" placeholder="a1" />
+        <label for="adminShellSelect">Shell</label>
+        <select id="adminShellSelect">
+          <option value="cmd">Command Prompt (cmd)</option>
+          <option value="powershell">PowerShell</option>
+        </select>
+        <label for="adminCommandInput">Command</label>
+        <textarea id="adminCommandInput" rows="3" placeholder="whoami"></textarea>
+        <div class="row">
+          <button id="sendAdminCommandBtn" type="button" class="primary">Run Admin Command</button>
+        </div>
+        <p class="muted">Required scopes: <code>commands:execute</code> + <code>admin:manage</code>.</p>
+      </section>
+
+      <section class="panel">
         <h2>Groups</h2>
         <p class="muted">Create target groups for guarded bulk actions.</p>
         <label for="groupIdInput">Group ID</label>

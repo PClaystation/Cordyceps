@@ -306,16 +306,16 @@ function parseOpenApp(commandPhrase: string): TypedCommand | ParseError | null {
   return null;
 }
 
-function parseNotify(commandPhrase: string): TypedCommand | ParseError | null {
-  const normalizedPhrase = commandPhrase.trim();
-  if (/^notify[,.!?;:]*$/.test(normalizedPhrase)) {
+function parseNotify(rawCommandPhrase: string): TypedCommand | ParseError | null {
+  const trimmed = rawCommandPhrase.trim();
+  if (/^notify[,.!?;:]*$/i.test(trimmed)) {
     return {
       code: "MALFORMED_ARGUMENT",
       message: "notify requires message text",
     };
   }
 
-  const notifyMatch = normalizedPhrase.match(/^notify(?:[,.!?;:]+\s*|\s+)(.+)$/);
+  const notifyMatch = trimmed.match(/^notify(?:[,.!?;:]+\s*|\s+)([\s\S]+)$/i);
   if (!notifyMatch) {
     return null;
   }
@@ -341,23 +341,21 @@ function parseNotify(commandPhrase: string): TypedCommand | ParseError | null {
   };
 }
 
-function parseClipboard(commandPhrase: string): TypedCommand | ParseError | null {
-  if (commandPhrase === "clipboard" || commandPhrase === "copy") {
+function parseClipboard(rawCommandPhrase: string): TypedCommand | ParseError | null {
+  const trimmed = rawCommandPhrase.trim();
+  if (/^(clipboard|copy)$/i.test(trimmed)) {
     return {
       code: "MALFORMED_ARGUMENT",
       message: "clipboard requires text",
     };
   }
 
-  let text = "";
-  if (commandPhrase.startsWith("clipboard ")) {
-    text = commandPhrase.slice("clipboard ".length).trim();
-  } else if (commandPhrase.startsWith("copy ")) {
-    text = commandPhrase.slice("copy ".length).trim();
-  } else {
+  const clipboardMatch = trimmed.match(/^(clipboard|copy)\s+([\s\S]+)$/i);
+  if (!clipboardMatch) {
     return null;
   }
 
+  const text = clipboardMatch[2]?.trim() ?? "";
   if (!text) {
     return {
       code: "MALFORMED_ARGUMENT",
@@ -914,12 +912,12 @@ function parseCommandPhrase(rawCommandPhrase: string, normalizedCommandPhrase: s
     return appCommand;
   }
 
-  const notifyCommand = parseNotify(normalizedPhrase);
+  const notifyCommand = parseNotify(rawCommandPhrase);
   if (notifyCommand) {
     return notifyCommand;
   }
 
-  const clipboardCommand = parseClipboard(normalizedCommandPhrase);
+  const clipboardCommand = parseClipboard(rawCommandPhrase);
   if (clipboardCommand) {
     return clipboardCommand;
   }

@@ -667,6 +667,14 @@ function normalizeUpdatePackageUrl(candidate: unknown, enforceHttps = true): str
       return null;
     }
 
+    if (!parsed.hostname) {
+      return null;
+    }
+
+    if (parsed.username || parsed.password) {
+      return null;
+    }
+
     return parsed.toString();
   } catch {
     return null;
@@ -1932,7 +1940,8 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
   });
 
   server.post("/api/command", async (request, reply) => {
-    if (!authorize(request, reply, deps, ["commands:execute"])) {
+    const auth = authorize(request, reply, deps, ["commands:execute"]);
+    if (!auth) {
       return;
     }
 
@@ -1970,6 +1979,11 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
         message: `Command rejected: ${parsed.message}`,
         error_code: parsed.code,
       });
+      return;
+    }
+
+    if (ADMIN_ONLY_COMMANDS.has(parsed.command.type) && !auth.scopes.has("admin:manage")) {
+      forbidden(reply, "Admin commands require admin:manage scope");
       return;
     }
 

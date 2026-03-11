@@ -267,6 +267,74 @@ test("scoped API key can read devices but cannot execute updates", async () => {
   }
 });
 
+test("admin command execution requires admin scope", async () => {
+  const harness = await createHarness();
+  const { server, router, cleanup } = harness;
+
+  try {
+    addOnlineDevice(harness, {
+      deviceId: "a1",
+      capabilities: ["admin_ops"],
+    });
+
+    const createOperatorKey = await server.inject({
+      method: "POST",
+      url: "/api/auth/keys",
+      headers: authHeaders("owner-token"),
+      payload: {
+        name: "operator",
+        scopes: ["commands:execute"],
+      },
+    });
+
+    assert.equal(createOperatorKey.statusCode, 200);
+    const operatorToken = createOperatorKey.json().api_key as string;
+
+    const forbiddenAdminRun = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: authHeaders(operatorToken),
+      payload: {
+        text: "a1 admin cmd whoami",
+      },
+    });
+
+    assert.equal(forbiddenAdminRun.statusCode, 403);
+    assert.equal(router.dispatchedToDevice.length, 0);
+
+    const createAdminKey = await server.inject({
+      method: "POST",
+      url: "/api/auth/keys",
+      headers: authHeaders("owner-token"),
+      payload: {
+        name: "admin-operator",
+        scopes: ["commands:execute", "admin:manage"],
+      },
+    });
+
+    assert.equal(createAdminKey.statusCode, 200);
+    const adminToken = createAdminKey.json().api_key as string;
+
+    const allowedAdminRun = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: authHeaders(adminToken),
+      payload: {
+        text: "a1 admin cmd whoami",
+      },
+    });
+
+    assert.equal(allowedAdminRun.statusCode, 200);
+    const allowedBody = allowedAdminRun.json();
+    assert.equal(allowedBody.parsed_type, "ADMIN_EXEC_CMD");
+    assert.equal(router.dispatchedToDevice.length, 1);
+    assert.equal(router.dispatchedToDevice[0]?.deviceId, "a1");
+    assert.equal(router.dispatchedToDevice[0]?.type, "ADMIN_EXEC_CMD");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("update can be queued for an offline device", async () => {
   const harness = await createHarness();
   const { server, db, registry, router, cleanup } = harness;
@@ -332,6 +400,31 @@ test("queue_if_offline requires a single target device", async () => {
 
     assert.equal(response.statusCode, 400);
     assert.equal(response.json().error_code, "INVALID_QUEUE_TARGET");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("update rejects package_url with credentials", async () => {
+  const harness = await createHarness();
+  const { server, cleanup } = harness;
+
+  try {
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/update",
+      headers: authHeaders("owner-token"),
+      payload: {
+        target: "m1",
+        version: "1.0.1",
+        package_url: "https://user:pass@example.com/agent.exe",
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+    const body = response.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.error_code, "INVALID_UPDATE_URL");
   } finally {
     await cleanup();
   }

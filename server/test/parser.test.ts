@@ -47,3 +47,15 @@ test("parser rejects unconfirmed emergency command", () => {
   assert.equal(parsed.code, "MALFORMED_ARGUMENT");
   assert.match(parsed.message, /requires explicit confirmation/i);
 });
+
+test("parser preserves notify and clipboard text payload casing", () => {
+  const notifyParsed = parseExternalCommand("m1 notify: Hello WORLD!");
+  assert.ok(!("code" in notifyParsed));
+  assert.equal(notifyParsed.command.type, "NOTIFY");
+  assert.deepEqual(notifyParsed.command.args, { text: "Hello WORLD!" });
+
+  const clipboardParsed = parseExternalCommand("m1 clipboard Keep  CASE  x");
+  assert.ok(!("code" in clipboardParsed));
+  assert.equal(clipboardParsed.command.type, "CLIPBOARD_SET");
+  assert.deepEqual(clipboardParsed.command.args, { text: "Keep  CASE  x" });
+});
