@@ -34,7 +34,7 @@ Phone-driven remote command system:
   - `CLIPBOARD_SET`
   - `SYSTEM_SLEEP`, `SYSTEM_DISPLAY_OFF`, `SYSTEM_SIGN_OUT`, `SYSTEM_SHUTDOWN`, `SYSTEM_RESTART`
   - `AGENT_REMOVE` (local host must approve via multi-step prompt)
-  - `EMERGENCY_LOCKDOWN` (implemented in `e1` agent family only)
+  - `EMERGENCY_LOCKDOWN` (implemented in `e1` and `se1` agent families only)
   - Admin-only command family (implemented in `a1` agent family):
     - `ADMIN_EXEC_CMD`, `ADMIN_EXEC_POWERSHELL`
     - `PROCESS_LIST`, `PROCESS_KILL`
@@ -49,6 +49,7 @@ Phone-driven remote command system:
 - `agent/` Go Windows agent (single binary)
 - `t1/` Go Windows agent family (`t*` device IDs)
 - `s1/` Go Windows safer agent family (`s*` device IDs, keeps updater but drops sleep/sign-out/shutdown/restart)
+- `se1/` Go Windows safest agent family (`se*` device IDs, safe commands plus emergency lockdown)
 - `e1/` Go Windows agent family (`e*` device IDs, includes emergency lockdown command)
 - `a1/` Go Windows admin agent family (`a*` device IDs, includes deep admin commands)
 - `docs/iphone-shortcut.md` iPhone Shortcut wiring
@@ -226,6 +227,27 @@ Management:
 
 - `.\manage-s1-agent.ps1 -Action status`
 - `.\manage-s1-agent.ps1 -Action uninstall`
+
+### Safest device family (SE1 agent)
+
+Use this on machines where you want the reduced `s1` command surface and the hardened emergency isolation flow from `e1`. This is the safest profile: normal remote control excludes sleep, sign-out, shutdown, and restart, but `panic confirm` remains available for explicit lockdown situations.
+
+1. Build a USB-ready SE1 agent once:
+
+```powershell
+cd se1
+.\build-se1-usb.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN"
+```
+
+2. Run `se1/dist/se1-agent-usb.exe` once on the target device.
+
+On first run it self-installs to `%LOCALAPPDATA%\SE1Agent\se1-agent.exe` and auto-designates `se*` IDs when `-DeviceId` is omitted.
+`se1` keeps remote self-update support, exposes only the safer everyday commands, and adds the emergency lockdown path with cooldown, audit log, and automatic rollback of temporary network isolation.
+
+Management:
+
+- `.\manage-se1-agent.ps1 -Action status`
+- `.\manage-se1-agent.ps1 -Action uninstall`
 
 ### Admin-capable device family (A1 agent)
 
