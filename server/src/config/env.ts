@@ -156,29 +156,53 @@ function tryReadDeviceCount(filePath: string): number | null {
   }
 }
 
+function chooseBestSqlitePath(candidates: Array<{ path: string; source: PathSource }>): { path: string; source: PathSource } {
+  const uniqueCandidates: Array<{ path: string; source: PathSource }> = [];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    if (seen.has(candidate.path)) {
+      continue;
+    }
+    seen.add(candidate.path);
+    uniqueCandidates.push(candidate);
+  }
+
+  let best: { path: string; source: PathSource; count: number } | null = null;
+  for (const candidate of uniqueCandidates) {
+    const count = tryReadDeviceCount(candidate.path);
+    if (count === null) {
+      continue;
+    }
+
+    if (!best || count > best.count) {
+      best = { ...candidate, count };
+    }
+  }
+
+  if (best && best.count > 0) {
+    return { path: best.path, source: best.source };
+  }
+
+  for (const candidate of uniqueCandidates) {
+    if (fs.existsSync(candidate.path)) {
+      return candidate;
+    }
+  }
+
+  return uniqueCandidates[0];
+}
+
 function resolveDefaultSqlitePath(serverRoot: string): { path: string; source: PathSource } {
   const preferredPath = path.join(serverRoot, "data", "cordyceps.db");
-  const legacyPath = path.join(process.cwd(), "data", "cordyceps.db");
-  if (preferredPath === legacyPath) {
-    return { path: preferredPath, source: "default" };
-  }
+  const candidates = [
+    { path: preferredPath, source: "default" as const },
+    { path: path.join(serverRoot, "data", "jarvis.db"), source: "legacy" as const },
+    { path: path.join(process.cwd(), "data", "cordyceps.db"), source: "legacy" as const },
+    { path: path.join(process.cwd(), "data", "jarvis.db"), source: "legacy" as const },
+  ];
 
-  const preferredCount = tryReadDeviceCount(preferredPath);
-  const legacyCount = tryReadDeviceCount(legacyPath);
-
-  if ((legacyCount ?? 0) > (preferredCount ?? 0)) {
-    return { path: legacyPath, source: "legacy" };
-  }
-
-  if (fs.existsSync(preferredPath)) {
-    return { path: preferredPath, source: "default" };
-  }
-
-  if (fs.existsSync(legacyPath)) {
-    return { path: legacyPath, source: "legacy" };
-  }
-
-  return { path: preferredPath, source: "default" };
+  return chooseBestSqlitePath(candidates);
 }
 
 function resolveSecrets(sqlitePath: string, serverRoot: string): ResolvedSecrets {
@@ -279,7 +303,11 @@ export function loadConfig(): AppConfig {
   const serverRoot = resolveServerRoot();
   const explicitSqlitePath = process.env.SQLITE_PATH?.trim();
   const sqliteResolution = explicitSqlitePath
-    ? { path: resolveConfiguredPath(explicitSqlitePath, serverRoot), source: "env" as const }
+    ? chooseBestSqlitePath([
+        { path: resolveConfiguredPath(explicitSqlitePath, serverRoot), source: "env" as const },
+        { path: resolveConfiguredPath(explicitSqlitePath.replace(/cordyceps\.db$/i, "jarvis.db"), serverRoot), source: "legacy" as const },
+        { path: resolveConfiguredPath(explicitSqlitePath.replace(/jarvis\.db$/i, "cordyceps.db"), serverRoot), source: "legacy" as const },
+      ])
     : resolveDefaultSqlitePath(serverRoot);
   const secrets = resolveSecrets(sqliteResolution.path, serverRoot);
   const commandTimeoutMs = readInt("COMMAND_TIMEOUT_MS", 5000);
