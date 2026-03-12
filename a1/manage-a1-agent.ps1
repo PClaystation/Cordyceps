@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$taskName = "A1Agent"
+$taskNames = @("A1Agent", "A1AgentBoot", "A1AgentWatchdog")
 $installRoot = Join-Path $env:LOCALAPPDATA "A1Agent"
 $installedExe = Join-Path $installRoot "a1-agent.exe"
 $configPath = Join-Path $env:APPDATA "A1Agent\config.json"
@@ -18,8 +18,14 @@ function Get-AgentProcess {
 }
 
 if ($Action -eq "status") {
-  $task = schtasks /Query /TN $taskName 2>$null
-  $taskRegistered = $LASTEXITCODE -eq 0
+  $taskRegistered = $false
+  foreach ($taskName in $taskNames) {
+    $task = schtasks /Query /TN $taskName 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      $taskRegistered = $true
+    }
+  }
+
   $runKey = Get-ItemProperty -Path $runKeyPath -Name $runKeyName -ErrorAction SilentlyContinue
   $processes = @(Get-AgentProcess)
 
@@ -42,7 +48,9 @@ if ($Action -eq "status") {
 
 if ($Action -eq "uninstall") {
   Get-AgentProcess | Stop-Process -Force -ErrorAction SilentlyContinue
-  schtasks /Delete /TN $taskName /F 2>$null | Out-Null
+  foreach ($taskName in $taskNames) {
+    schtasks /Delete /TN $taskName /F 2>$null | Out-Null
+  }
   Remove-ItemProperty -Path $runKeyPath -Name $runKeyName -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $installedExe -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue

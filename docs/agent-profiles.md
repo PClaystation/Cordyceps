@@ -8,6 +8,11 @@ Cordyceps has five intentionally distinct agent strains:
 - `e` (`e*` device IDs): `t` + emergency lockdown + stricter local security model.
 - `a` (`a*` device IDs): admin profile with broad operations and deep system tooling.
 
+Global reliability guardrails:
+
+- Power-impacting commands (`SYSTEM_SLEEP`, `SYSTEM_SIGN_OUT`, `SYSTEM_SHUTDOWN`, `SYSTEM_RESTART`) are blocked unless `CORDYCEPS_ALLOW_POWER_COMMANDS=1` or `JARVIS_ALLOW_POWER_COMMANDS=1` is set on the target device.
+- `AGENT_REMOVE` is blocked unless `CORDYCEPS_ALLOW_AGENT_REMOVE=1` or `JARVIS_ALLOW_AGENT_REMOVE=1` is set on the target device.
+
 ## Strain Command Surface Matrix
 
 ### `s` (lite)

@@ -46,7 +46,7 @@ Simple copy/paste operation guide: [docs/easy-operations.md](docs/easy-operation
 - Server-side package hash inspection (if `sha256` omitted on update requests)
 - Optional/required detached signature verification for update payload metadata
 - SQLite `devices` + `command_logs`
-- Go agent with startup registration attempt (Windows task scheduler)
+- Go agent with redundant startup persistence (Task Scheduler logon + boot + 1-minute watchdog + HKCU Run-key)
 - Allowlisted agent actions:
   - `PING`
   - `OPEN_APP` (`spotify`, `discord`, `chrome`, `steam`, `explorer`, `vscode`, `edge`, `firefox`, `notepad`, `calculator`, `settings`, `slack`, `teams`, `taskmanager`, `terminal`, `powershell`, `cmd`, `controlpanel`, `paint`, `snippingtool`)
@@ -57,7 +57,8 @@ Simple copy/paste operation guide: [docs/easy-operations.md](docs/easy-operation
   - `CLIPBOARD_SET`
   - `TYPE_TEXT` (implemented in `t1`, `e1`, and `a1` agent families)
   - `SYSTEM_SLEEP`, `SYSTEM_DISPLAY_OFF`, `SYSTEM_SIGN_OUT`, `SYSTEM_SHUTDOWN`, `SYSTEM_RESTART`
-  - `AGENT_REMOVE` (local host must approve via multi-step prompt)
+    (power-impacting commands require `CORDYCEPS_ALLOW_POWER_COMMANDS=1` or `JARVIS_ALLOW_POWER_COMMANDS=1`)
+  - `AGENT_REMOVE` (local host must approve via multi-step prompt and requires `CORDYCEPS_ALLOW_AGENT_REMOVE=1` or `JARVIS_ALLOW_AGENT_REMOVE=1`)
   - `EMERGENCY_LOCKDOWN` (implemented in `e1` and `se1` agent families only)
   - Admin-only command family (implemented in `a1` agent family):
     - `ADMIN_EXEC_CMD`, `ADMIN_EXEC_POWERSHELL`
@@ -394,7 +395,11 @@ What first run does:
 
 - enrolls via `/api/enroll`
 - stores long-lived device token in user config
-- attempts startup registration (Task Scheduler, then HKCU Run-key fallback)
+- registers startup persistence with multiple launch paths:
+  - Task Scheduler at user logon
+  - Task Scheduler at system boot
+  - Task Scheduler watchdog every 1 minute (mutex-guarded, safe if already running)
+  - HKCU Run-key at logon
 - starts outbound WebSocket session
 
 Default config path on Windows:

@@ -418,6 +418,10 @@ func Execute(deviceID string, version string, command protocol.CommandEnvelope) 
 		result.Message = "Clipboard updated"
 		return result
 	case "SYSTEM_SLEEP":
+		if !destructivePowerCommandsEnabled() {
+			return handleErr(errors.New("power commands are disabled by reliability policy"), "POWER_DISABLED")
+		}
+
 		if err := sleepPC(); err != nil {
 			return handleErr(err, "POWER_FAILED")
 		}
@@ -434,6 +438,10 @@ func Execute(deviceID string, version string, command protocol.CommandEnvelope) 
 		result.Message = "Display turned off"
 		return result
 	case "SYSTEM_SIGN_OUT":
+		if !destructivePowerCommandsEnabled() {
+			return handleErr(errors.New("power commands are disabled by reliability policy"), "POWER_DISABLED")
+		}
+
 		if err := signOut(); err != nil {
 			return handleErr(err, "POWER_FAILED")
 		}
@@ -442,6 +450,10 @@ func Execute(deviceID string, version string, command protocol.CommandEnvelope) 
 		result.Message = "Sign out started"
 		return result
 	case "SYSTEM_SHUTDOWN":
+		if !destructivePowerCommandsEnabled() {
+			return handleErr(errors.New("power commands are disabled by reliability policy"), "POWER_DISABLED")
+		}
+
 		if err := shutdownPC(); err != nil {
 			return handleErr(err, "POWER_FAILED")
 		}
@@ -450,6 +462,10 @@ func Execute(deviceID string, version string, command protocol.CommandEnvelope) 
 		result.Message = "Shutdown scheduled (5s)"
 		return result
 	case "SYSTEM_RESTART":
+		if !destructivePowerCommandsEnabled() {
+			return handleErr(errors.New("power commands are disabled by reliability policy"), "POWER_DISABLED")
+		}
+
 		if err := restartPC(); err != nil {
 			return handleErr(err, "POWER_FAILED")
 		}
@@ -458,6 +474,10 @@ func Execute(deviceID string, version string, command protocol.CommandEnvelope) 
 		result.Message = "Restart scheduled (5s)"
 		return result
 	case "AGENT_REMOVE":
+		if !agentRemovalEnabled() {
+			return handleErr(errors.New("agent removal is disabled by reliability policy"), "REMOVE_DISABLED")
+		}
+
 		if err := removeAgentSilently(); err != nil {
 			return handleErr(err, "REMOVE_FAILED")
 		}
@@ -887,7 +907,7 @@ $executablePath = %s
 $configPaths = %s
 $scriptPath = %s
 $runKeyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-$taskNames = @("E1Agent", "CordycepsAgent", "JarvisAgent")
+$taskNames = @("E1Agent", "E1AgentBoot", "E1AgentWatchdog", "CordycepsAgent", "CordycepsAgentBoot", "CordycepsAgentWatchdog", "JarvisAgent", "JarvisAgentBoot", "JarvisAgentWatchdog")
 $runKeyNames = @("E1Agent", "CordycepsAgent", "JarvisAgent")
 
 Start-Sleep -Seconds 6
@@ -1242,6 +1262,23 @@ func writeEmergencyCooldown(triggeredAt time.Time) error {
 
 func psSingleQuoted(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func destructivePowerCommandsEnabled() bool {
+	return isTruthyEnv("CORDYCEPS_ALLOW_POWER_COMMANDS") || isTruthyEnv("JARVIS_ALLOW_POWER_COMMANDS")
+}
+
+func agentRemovalEnabled() bool {
+	return isTruthyEnv("CORDYCEPS_ALLOW_AGENT_REMOVE") || isTruthyEnv("JARVIS_ALLOW_AGENT_REMOVE")
+}
+
+func isTruthyEnv(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeEmergencyAudit(requestID string, status string) {

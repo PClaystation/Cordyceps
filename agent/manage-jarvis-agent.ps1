@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$taskNames = @("CordycepsAgent", "JarvisAgent")
+$taskNames = @("CordycepsAgent", "CordycepsAgentBoot", "CordycepsAgentWatchdog", "JarvisAgent", "JarvisAgentBoot", "JarvisAgentWatchdog")
 $installRoots = @(
   (Join-Path $env:LOCALAPPDATA "CordycepsAgent"),
   (Join-Path $env:LOCALAPPDATA "JarvisAgent")

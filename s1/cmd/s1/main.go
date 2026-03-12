@@ -42,7 +42,8 @@ var (
 )
 
 const (
-	startupRefreshInterval   = 6 * time.Hour
+	startupRefreshInterval   = 30 * time.Minute
+	restartFallbackDelay     = 75 * time.Second
 	maxInitResponseBodyBytes = 64 * 1024
 )
 
@@ -374,6 +375,7 @@ func superviseAgent(ctx context.Context, cfgPath string, serverURL string, devic
 		backoff = 2 * time.Second
 		if err := runLoop(ctx, cfg, cfgPath); err != nil {
 			if errors.Is(err, errRestartRequested) {
+				scheduleRestartFallback(executablePath, cfgPath)
 				return
 			}
 			if errors.Is(err, errReenrollRequired) {
@@ -830,6 +832,21 @@ func maintainStartupRegistration(ctx context.Context, executablePath string) {
 				log.Printf("warning: periodic startup registration failed: %v", err)
 			}
 		}
+	}
+}
+
+func scheduleRestartFallback(executablePath string, cfgPath string) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+
+	if strings.TrimSpace(executablePath) == "" || strings.TrimSpace(cfgPath) == "" {
+		return
+	}
+
+	restartArgs := []string{"--config", cfgPath, "--run-agent"}
+	if err := background.RelaunchAfterDelay(executablePath, restartArgs, restartFallbackDelay); err != nil {
+		log.Printf("warning: schedule restart fallback failed: %v", err)
 	}
 }
 

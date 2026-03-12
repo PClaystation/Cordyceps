@@ -31,7 +31,11 @@ func RelaunchDetached(executablePath string, args []string) error {
 }
 
 func RelaunchAfterParentExit(executablePath string, args []string) error {
-	scriptPath, err := writeDelayedLaunchScript(executablePath, args)
+	return RelaunchAfterDelay(executablePath, args, 2*time.Second)
+}
+
+func RelaunchAfterDelay(executablePath string, args []string, delay time.Duration) error {
+	scriptPath, err := writeDelayedLaunchScript(executablePath, args, delay)
 	if err != nil {
 		return err
 	}
@@ -52,12 +56,20 @@ func RelaunchAfterParentExit(executablePath string, args []string) error {
 	return nil
 }
 
-func writeDelayedLaunchScript(executablePath string, args []string) (string, error) {
+func writeDelayedLaunchScript(executablePath string, args []string, delay time.Duration) (string, error) {
+	waitSeconds := int(delay / time.Second)
+	if delay%time.Second != 0 {
+		waitSeconds++
+	}
+	if waitSeconds < 1 {
+		waitSeconds = 1
+	}
+
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("s1-launch-%d.cmd", time.Now().UTC().UnixNano()))
 	body := []string{
 		"@echo off",
 		"setlocal enableextensions",
-		"timeout /t 2 /nobreak >nul",
+		fmt.Sprintf("timeout /t %d /nobreak >nul", waitSeconds),
 		fmt.Sprintf("start \"\" /D \"%s\" /B \"%s\"%s", escapeCmdValue(filepath.Dir(executablePath)), escapeCmdValue(executablePath), formatCmdArgs(args)),
 		"del /f /q \"%~f0\" >nul 2>&1",
 		"",

