@@ -36,9 +36,15 @@ var (
 	defaultBootstrapToken = ""
 )
 
-var errRestartRequested = errors.New("agent restart requested")
+var (
+	errRestartRequested = errors.New("agent restart requested")
+	errReenrollRequired = errors.New("agent re-enrollment required")
+)
 
-const startupRefreshInterval = 6 * time.Hour
+const (
+	startupRefreshInterval   = 6 * time.Hour
+	maxInitResponseBodyBytes = 64 * 1024
+)
 
 type enrollRequest struct {
 	BootstrapToken    string   `json:"bootstrap_token"`
@@ -129,50 +135,10 @@ func main() {
 		}
 	}()
 
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			log.Fatalf("load config: %v", err)
-		}
-
-		cfg, err = firstRunEnroll(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), strings.TrimSpace(versionFlag))
-		if err != nil {
-			log.Fatalf("first-run enrollment failed: %v", err)
-		}
-		log.Printf("enrollment complete for device %s", cfg.DeviceID)
-	}
-
-	if strings.TrimSpace(serverURLFlag) != "" {
-		cfg.ServerBaseURL = normalizeBaseURL(serverURLFlag)
-	}
-
-	if strings.TrimSpace(versionFlag) != "" {
-		cfg.Version = strings.TrimSpace(versionFlag)
-	}
-
-	if cfg.HeartbeatSeconds <= 0 {
-		cfg.HeartbeatSeconds = 60
-	}
-
-	if cfg.WSURL == "" {
-		wsURL, err := deriveWSURL(cfg.ServerBaseURL)
-		if err != nil {
-			log.Fatalf("derive websocket URL: %v", err)
-		}
-		cfg.WSURL = wsURL
-	}
-
-	if err := config.Save(cfgPath, cfg); err != nil {
-		log.Fatalf("persist config: %v", err)
-	}
-
-	if execPathErr == nil {
-		if startupErr := startup.EnsureStartupRegistration(executablePath); startupErr != nil {
-			log.Printf("warning: startup registration failed: %v", startupErr)
-		}
-	}
-
 	if enrollOnlyFlag {
+		if _, err := initializeAgent(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), strings.TrimSpace(versionFlag), executablePath, execPathErr == nil); err != nil {
+			log.Fatalf("initialize agent: %v", err)
+		}
 		return
 	}
 
@@ -183,7 +149,7 @@ func main() {
 		go maintainStartupRegistration(ctx, executablePath)
 	}
 
-	runLoop(ctx, cfg, cfgPath)
+	superviseAgent(ctx, cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), strings.TrimSpace(versionFlag), executablePath, execPathErr == nil)
 }
 
 func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, displayNameInput string, bootstrapToken string, version string) (*config.Config, error) {
@@ -250,9 +216,7 @@ func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, 
 	}
 	request.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{
-		Timeout: 20 * time.Second,
-	}
+	client := newHTTPClient(20 * time.Second)
 
 	resp, err := client.Do(request)
 	if err != nil {
@@ -260,15 +224,20 @@ func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, 
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxInitResponseBodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("read enroll response: %w", err)
+	}
+
 	var enrollResp enrollResponse
-	if err := json.NewDecoder(resp.Body).Decode(&enrollResp); err != nil {
-		return nil, fmt.Errorf("parse enroll response: %w", err)
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &enrollResp); err != nil && resp.StatusCode < 300 {
+			return nil, fmt.Errorf("parse enroll response: %w", err)
+		}
 	}
 
 	if resp.StatusCode >= 300 || !enrollResp.OK {
-		if enrollResp.Message == "" {
-			enrollResp.Message = resp.Status
-		}
+		enrollResp.Message = firstNonEmpty(enrollResp.Message, httpErrorMessage(resp.Status, body))
 		return nil, fmt.Errorf("enrollment rejected: %s", enrollResp.Message)
 	}
 
@@ -307,7 +276,67 @@ func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, 
 	return cfg, nil
 }
 
-func runLoop(ctx context.Context, cfg *config.Config, cfgPath string) {
+func initializeAgent(cfgPath string, serverURL string, deviceID string, displayName string, bootstrapToken string, version string, executablePath string, ensureStartup bool) (*config.Config, error) {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			if canReenroll(serverURL, bootstrapToken) {
+				if backupPath, backupErr := archiveInvalidConfig(cfgPath); backupErr != nil {
+					return nil, fmt.Errorf("archive invalid config after %v: %w", err, backupErr)
+				} else if backupPath != "" {
+					log.Printf("archived invalid config to %s after load failure: %v", backupPath, err)
+				}
+			} else {
+				return nil, fmt.Errorf("load config: %w", err)
+			}
+		}
+
+		cfg, err = firstRunEnroll(cfgPath, serverURL, deviceID, displayName, bootstrapToken, version)
+		if err != nil {
+			return nil, fmt.Errorf("first-run enrollment failed: %w", err)
+		}
+		log.Printf("enrollment complete for device %s", cfg.DeviceID)
+	}
+
+	serverURL = normalizeBaseURL(serverURL)
+	if serverURL != "" {
+		cfg.ServerBaseURL = serverURL
+	}
+
+	if version != "" {
+		cfg.Version = version
+	}
+
+	if cfg.HeartbeatSeconds <= 0 {
+		cfg.HeartbeatSeconds = 60
+	}
+
+	if serverURL != "" || !isValidWSURL(cfg.WSURL) {
+		wsURL, err := deriveWSURL(cfg.ServerBaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("derive websocket URL: %w", err)
+		}
+		cfg.WSURL = wsURL
+	}
+
+	if cfg.DeviceID == "" {
+		return nil, errors.New("config missing device_id")
+	}
+
+	if err := config.Save(cfgPath, cfg); err != nil {
+		return nil, fmt.Errorf("persist config: %w", err)
+	}
+
+	if ensureStartup {
+		if err := startup.EnsureStartupRegistration(executablePath); err != nil {
+			log.Printf("warning: startup registration failed: %v", err)
+		}
+	}
+
+	return cfg, nil
+}
+
+func superviseAgent(ctx context.Context, cfgPath string, serverURL string, deviceID string, displayName string, bootstrapToken string, version string, executablePath string, ensureStartup bool) {
 	backoff := 2 * time.Second
 
 	for {
@@ -317,41 +346,99 @@ func runLoop(ctx context.Context, cfg *config.Config, cfgPath string) {
 		default:
 		}
 
+		cfg, err := initializeAgent(cfgPath, serverURL, deviceID, displayName, bootstrapToken, version, executablePath, ensureStartup)
+		if err != nil {
+			log.Printf("initialization failed: %v", err)
+			if !waitForRetry(ctx, backoff) {
+				return
+			}
+			backoff = nextBackoff(backoff)
+			continue
+		}
+
+		backoff = 2 * time.Second
+		if err := runLoop(ctx, cfg, cfgPath); err != nil {
+			if errors.Is(err, errRestartRequested) {
+				return
+			}
+			if errors.Is(err, errReenrollRequired) {
+				if !canReenroll(serverURL, bootstrapToken) {
+					log.Printf("session requires re-enrollment but bootstrap settings are unavailable")
+				} else if backupPath, backupErr := archiveInvalidConfig(cfgPath); backupErr != nil {
+					log.Printf("warning: archive config for re-enrollment failed: %v", backupErr)
+				} else if backupPath != "" {
+					log.Printf("archived stale config to %s before re-enrollment", backupPath)
+				}
+
+				if !waitForRetry(ctx, 2*time.Second) {
+					return
+				}
+				backoff = 2 * time.Second
+				continue
+			}
+			log.Printf("agent loop ended: %v", err)
+			if !waitForRetry(ctx, backoff) {
+				return
+			}
+			backoff = nextBackoff(backoff)
+			continue
+		}
+
+		return
+	}
+}
+
+func runLoop(ctx context.Context, cfg *config.Config, cfgPath string) error {
+	backoff := 2 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
 		err := safeRunSession(ctx, cfg, cfgPath)
 		if err == nil {
-			return
+			return nil
 		}
 
 		if errors.Is(err, errRestartRequested) {
-			return
+			return err
 		}
 
 		log.Printf("session ended: %v", err)
-
-		jitter := time.Duration(time.Now().UnixNano()%500) * time.Millisecond
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff + jitter):
+		if !waitForRetry(ctx, backoff) {
+			return nil
 		}
-
-		if backoff < 30*time.Second {
-			backoff *= 2
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
-			}
-		}
+		backoff = nextBackoff(backoff)
 	}
 }
 
 func runSession(ctx context.Context, cfg *config.Config, cfgPath string) error {
-	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
-	conn, _, err := dialer.Dial(cfg.WSURL, nil)
+	dialer := newWebsocketDialer()
+	conn, resp, err := dialer.DialContext(ctx, cfg.WSURL, nil)
 	if err != nil {
-		return fmt.Errorf("connect websocket: %w", err)
+		return classifyDialError(err, resp)
 	}
 	defer conn.Close()
 	conn.SetReadLimit(65_536)
+	extendReadDeadline := func() error {
+		return conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+	}
+	if err := extendReadDeadline(); err != nil {
+		return fmt.Errorf("set initial read deadline: %w", err)
+	}
+	conn.SetPingHandler(func(appData string) error {
+		if err := extendReadDeadline(); err != nil {
+			return err
+		}
+
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(5*time.Second))
+	})
+	conn.SetPongHandler(func(string) error {
+		return extendReadDeadline()
+	})
 
 	hostname, _ := os.Hostname()
 	hostname = strings.TrimSpace(hostname)
@@ -426,10 +513,13 @@ func runSession(ctx context.Context, cfg *config.Config, cfgPath string) error {
 
 	go func() {
 		for {
-			conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
 			_, payload, err := conn.ReadMessage()
 			if err != nil {
-				sendError(fmt.Errorf("read message: %w", err))
+				sendError(classifySessionReadError(err))
+				return
+			}
+			if err := extendReadDeadline(); err != nil {
+				sendError(fmt.Errorf("refresh read deadline: %w", err))
 				return
 			}
 
@@ -559,7 +649,12 @@ func deriveWSURL(serverBaseURL string) (string, error) {
 		return "", fmt.Errorf("unsupported server URL scheme: %s", parsed.Scheme)
 	}
 
-	parsed.Path = "/ws/agent"
+	basePath := strings.TrimSuffix(parsed.Path, "/")
+	if basePath == "" {
+		parsed.Path = "/ws/agent"
+	} else {
+		parsed.Path = basePath + "/ws/agent"
+	}
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 
@@ -717,4 +812,129 @@ func maintainStartupRegistration(ctx context.Context, executablePath string) {
 			}
 		}
 	}
+}
+
+func waitForRetry(ctx context.Context, backoff time.Duration) bool {
+	jitter := time.Duration(time.Now().UnixNano()%500) * time.Millisecond
+	timer := time.NewTimer(backoff + jitter)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func nextBackoff(current time.Duration) time.Duration {
+	if current < 30*time.Second {
+		current *= 2
+		if current > 30*time.Second {
+			return 30 * time.Second
+		}
+	}
+
+	return current
+}
+
+func newHTTPClient(timeout time.Duration) *http.Client {
+	transport, _ := http.DefaultTransport.(*http.Transport)
+	if transport == nil {
+		return &http.Client{Timeout: timeout}
+	}
+
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport.Clone(),
+	}
+}
+
+func newWebsocketDialer() *websocket.Dialer {
+	dialer := *websocket.DefaultDialer
+	dialer.HandshakeTimeout = 10 * time.Second
+	return &dialer
+}
+
+func httpErrorMessage(status string, body []byte) string {
+	bodyText := strings.TrimSpace(string(body))
+	if bodyText == "" {
+		return status
+	}
+
+	return fmt.Sprintf("%s: %s", status, bodyText)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+
+	return ""
+}
+
+func canReenroll(serverURL string, bootstrapToken string) bool {
+	return strings.TrimSpace(serverURL) != "" && strings.TrimSpace(bootstrapToken) != ""
+}
+
+func archiveInvalidConfig(cfgPath string) (string, error) {
+	if strings.TrimSpace(cfgPath) == "" {
+		return "", nil
+	}
+
+	if _, err := os.Stat(cfgPath); errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+
+	backupPath := fmt.Sprintf("%s.broken-%d", cfgPath, time.Now().UTC().UnixNano())
+	if err := os.Rename(cfgPath, backupPath); err != nil {
+		return "", err
+	}
+
+	return backupPath, nil
+}
+
+func isValidWSURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+
+	if parsed.Host == "" {
+		return false
+	}
+
+	return parsed.Scheme == "ws" || parsed.Scheme == "wss"
+}
+
+func classifyDialError(err error, resp *http.Response) error {
+	if resp == nil {
+		return fmt.Errorf("connect websocket: %w", err)
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	message := httpErrorMessage(resp.Status, body)
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("%w: websocket handshake rejected: %s", errReenrollRequired, message)
+	}
+
+	return fmt.Errorf("connect websocket: %s: %w", message, err)
+}
+
+func classifySessionReadError(err error) error {
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		reason := strings.TrimSpace(closeErr.Text)
+		if closeErr.Code == 4003 && strings.EqualFold(reason, "Invalid device token") {
+			return fmt.Errorf("%w: %s", errReenrollRequired, reason)
+		}
+
+		return fmt.Errorf("read message: websocket closed (%d): %s", closeErr.Code, reason)
+	}
+
+	return fmt.Errorf("read message: %w", err)
 }

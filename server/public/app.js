@@ -950,6 +950,7 @@ function renderDeviceCards(devices) {
     const deviceId = String(device.device_id || "").trim();
     const displayName = String(device.display_name || "").trim();
     const status = String(device.status || "unknown").trim().toLowerCase();
+    const version = String(device.version || "").trim();
 
     const card = document.createElement("article");
     card.className = "device-card";
@@ -977,6 +978,11 @@ function renderDeviceCards(devices) {
       card.appendChild(identity);
     }
 
+    const versionText = document.createElement("p");
+    versionText.className = "muted";
+    versionText.textContent = `Agent version: ${version || "unknown"}`;
+    card.appendChild(versionText);
+
     card.appendChild(meta);
     card.appendChild(renderCapabilityChips(device.capabilities));
 
@@ -994,7 +1000,7 @@ function renderDeviceCards(devices) {
     deviceCards.appendChild(card);
 
     const li = document.createElement("li");
-    li.textContent = `${displayName || deviceId} - ${status}`;
+    li.textContent = `${displayName || deviceId} - ${status} - ${version ? `v${version}` : "version unknown"}`;
     deviceList.appendChild(li);
   }
 
