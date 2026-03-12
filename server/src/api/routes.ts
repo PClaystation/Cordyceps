@@ -2022,6 +2022,54 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
     });
   });
 
+  server.delete("/api/devices/:deviceId", async (request, reply) => {
+    if (!authorize(request, reply, deps, ["devices:write"])) {
+      return;
+    }
+
+    const params = request.params as { deviceId?: string } | undefined;
+    const deviceId = asTrimmedString(params?.deviceId).toLowerCase();
+    if (!deviceId || !/^[a-z0-9_-]{2,32}$/.test(deviceId)) {
+      reply.code(400).send({
+        ok: false,
+        message: "device_id must be 2-32 chars and use a-z, 0-9, _ or -",
+        error_code: "INVALID_DEVICE_ID",
+      });
+      return;
+    }
+
+    if (deps.registry.get(deviceId)) {
+      reply.code(409).send({
+        ok: false,
+        message: `${deviceId} is online. Disconnect it before deleting the record.`,
+        error_code: "DEVICE_ONLINE",
+      });
+      return;
+    }
+
+    if (!deps.db.deleteDevice(deviceId)) {
+      reply.code(404).send({
+        ok: false,
+        message: `Unknown device: ${deviceId}`,
+        error_code: "UNKNOWN_DEVICE",
+      });
+      return;
+    }
+
+    deps.router.clearDevicePending(deviceId);
+    deps.eventHub.publish("device_status", {
+      device_id: deviceId,
+      status: "deleted",
+      reason: "manual_delete",
+    });
+
+    reply.send({
+      ok: true,
+      device_id: deviceId,
+      message: `Deleted device record ${deviceId}`,
+    });
+  });
+
   server.post("/api/devices/:deviceId/display-name", async (request, reply) => {
     if (!authorize(request, reply, deps, ["devices:write"])) {
       return;

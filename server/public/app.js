@@ -1179,7 +1179,9 @@ function renderDeviceInspectView(payload) {
     {};
 
   const deviceId = String(device.device_id || inspectedDeviceId || "").trim();
+  const normalizedDeviceId = normalizeActionText(deviceId);
   const displayName = String(device.display_name || "").trim();
+  const deviceStatus = String(device.status || "unknown").toLowerCase();
   const title = displayName || deviceId || "unknown-device";
 
   if (deviceInspectTitle) {
@@ -1187,10 +1189,9 @@ function renderDeviceInspectView(payload) {
   }
 
   if (deviceInspectMeta) {
-    const status = String(device.status || "unknown").toLowerCase();
     const profile = device.profile ? ` • profile ${device.profile}` : "";
     const version = device.version ? ` • v${device.version}` : "";
-    deviceInspectMeta.textContent = `${deviceId || "unknown"} • ${status}${profile}${version}`;
+    deviceInspectMeta.textContent = `${deviceId || "unknown"} • ${deviceStatus}${profile}${version}`;
   }
 
   if (deviceInspectSections) {
@@ -1204,12 +1205,60 @@ function renderDeviceInspectView(payload) {
       { key: "Device ID", value: device.device_id || "n/a" },
       { key: "Hostname", value: device.hostname || "n/a" },
       { key: "Username", value: device.username || "n/a" },
-      { key: "Status", value: device.status || "unknown" },
+      { key: "Status", value: deviceStatus || "unknown" },
       { key: "Last seen", value: toLocalTimestamp(device.last_seen) },
       { key: "Registered", value: toLocalTimestamp(device.created_at) },
       { key: "Updated", value: toLocalTimestamp(device.updated_at) },
     ]),
   );
+
+  const managementBlock = document.createElement("div");
+  managementBlock.className = "device-inspect-grid";
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.textContent = "Delete Device Record";
+  deleteButton.disabled = !normalizedDeviceId || deviceStatus === "online";
+  if (deviceStatus === "online") {
+    deleteButton.title = "Device is online. Disconnect it before deleting the saved record.";
+  }
+  deleteButton.addEventListener("click", async () => {
+    if (!normalizedDeviceId) {
+      return;
+    }
+
+    const label = displayName && displayName.toLowerCase() !== normalizedDeviceId
+      ? `${displayName} (${normalizedDeviceId})`
+      : normalizedDeviceId;
+    const confirmed = window.confirm(
+      `Delete saved record for ${label}? This removes aliases, queued updates, and history tied to this designation.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const defaultLabel = deleteButton.textContent;
+    deleteButton.disabled = true;
+    deleteButton.textContent = "Deleting...";
+    try {
+      await deleteDeviceRecord(normalizedDeviceId);
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : String(error), { isError: true });
+    } finally {
+      deleteButton.textContent = defaultLabel;
+      if (deviceStatus !== "online") {
+        deleteButton.disabled = false;
+      }
+    }
+  });
+  managementBlock.appendChild(deleteButton);
+
+  const managementText = document.createElement("div");
+  managementText.className = "history-message";
+  managementText.textContent =
+    "Use this only for stale/offline designations (for example after re-enroll from t4 to t5).";
+  managementBlock.appendChild(managementText);
+
+  appendDeviceInspectSection("Record Management", managementBlock);
 
   appendDeviceInspectSection(
     "Security and Runtime",
@@ -1432,10 +1481,51 @@ function renderDeviceCards(devices) {
       }
     });
 
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.textContent = "Delete Record";
+    if (status === "online") {
+      deleteButton.disabled = true;
+      deleteButton.title = "Device is online. Disconnect it before deleting the saved record.";
+    }
+    deleteButton.addEventListener("click", async () => {
+      if (!deviceId) {
+        return;
+      }
+
+      const normalizedDeviceId = normalizeActionText(deviceId);
+      const label =
+        displayName && displayName.toLowerCase() !== normalizedDeviceId
+          ? `${displayName} (${normalizedDeviceId})`
+          : normalizedDeviceId;
+      const confirmed = window.confirm(
+        `Delete saved record for ${label}? This removes aliases, queued updates, and history tied to this designation.`,
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      const defaultLabel = deleteButton.textContent;
+      deleteButton.disabled = true;
+      deleteButton.textContent = "Deleting...";
+      try {
+        await deleteDeviceRecord(normalizedDeviceId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setResult(message, { isError: true });
+      } finally {
+        deleteButton.textContent = defaultLabel;
+        if (status !== "online") {
+          deleteButton.disabled = false;
+        }
+      }
+    });
+
     const actions = document.createElement("div");
     actions.className = "actions";
     actions.appendChild(useButton);
     actions.appendChild(inspectButton);
+    actions.appendChild(deleteButton);
     card.appendChild(actions);
     deviceCards.appendChild(card);
 
@@ -1824,6 +1914,42 @@ async function deleteGroup() {
   const { data, latencyMs } = await apiRequest(`/api/groups/${encodeURIComponent(groupId)}`, null, { method: "DELETE" });
   await loadGroups({ silent: true });
   setResult(data, { latencyMs });
+}
+
+async function deleteDeviceRecord(deviceId) {
+  const normalizedDeviceId = normalizeActionText(deviceId);
+  if (!normalizedDeviceId) {
+    throw new Error("Device ID is required.");
+  }
+
+  const { data, latencyMs } = await apiRequest(`/api/devices/${encodeURIComponent(normalizedDeviceId)}`, null, {
+    method: "DELETE",
+  });
+
+  if (inspectedDeviceId === normalizedDeviceId) {
+    hideDeviceInspectView();
+  }
+
+  await Promise.allSettled([
+    loadDevices({ silent: true, refreshInspect: false }),
+    loadGroups({ silent: true }),
+    loadHistory({ silent: true }),
+  ]);
+
+  const targetDeviceId = normalizeDeviceId(targetInput.value);
+  if (targetDeviceId === normalizedDeviceId) {
+    const fallback = knownDevices.find((item) => normalizeActionText(item?.device_id) !== normalizedDeviceId);
+    if (fallback?.device_id) {
+      setTarget(normalizeActionText(fallback.device_id));
+    } else {
+      targetInput.value = "";
+      localStorage.removeItem(TARGET_KEY);
+      commandText.value = composeCommand();
+      refreshActionAvailability();
+    }
+  }
+
+  setResult(data, { requestId: normalizedDeviceId, latencyMs });
 }
 
 async function loadHistory(options = {}) {

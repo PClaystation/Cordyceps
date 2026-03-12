@@ -32,6 +32,7 @@ Simple copy/paste operation guide: [docs/easy-operations.md](docs/easy-operation
 - `POST /api/enroll` for first-run device enrollment
 - `GET /api/devices` (phone-authenticated)
 - `GET /api/devices/:deviceId` rich per-device state (control flags, aliases, queued updates, recent logs)
+- `DELETE /api/devices/:deviceId` remove a stale/offline device designation record
 - Remote-managed per-device app aliases (`GET/PUT /api/devices/:deviceId/app-aliases`)
 - `GET /api/admin/overview` aggregated security/update/device visibility
 - Auth lifecycle endpoints:

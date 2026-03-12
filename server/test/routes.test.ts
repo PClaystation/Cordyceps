@@ -1107,6 +1107,63 @@ test("device detail endpoint returns control, aliases, queue, and recent logs", 
   }
 });
 
+test("device delete endpoint removes offline device records", async () => {
+  const harness = await createHarness();
+  const { server, db, cleanup } = harness;
+
+  try {
+    db.enrollDevice({
+      deviceId: "t4",
+      tokenHash: sha256Hex("t4-token"),
+      displayName: "Old Laptop",
+      version: "0.1.0",
+      hostname: "old-host",
+      username: "old-user",
+      capabilities: ["updater"],
+    });
+    db.markDeviceOffline("t4");
+
+    const response = await server.inject({
+      method: "DELETE",
+      url: "/api/devices/t4",
+      headers: {
+        authorization: "Bearer owner-token",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.device_id, "t4");
+    assert.equal(db.getDevice("t4"), null);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("device delete endpoint rejects online devices", async () => {
+  const harness = await createHarness();
+  const { server, db, cleanup } = harness;
+
+  try {
+    const response = await server.inject({
+      method: "DELETE",
+      url: "/api/devices/m1",
+      headers: {
+        authorization: "Bearer owner-token",
+      },
+    });
+
+    assert.equal(response.statusCode, 409);
+    const body = response.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.error_code, "DEVICE_ONLINE");
+    assert.notEqual(db.getDevice("m1"), null);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("admin overview endpoint requires admin scope and returns aggregate data", async () => {
   const harness = await createHarness();
   const { server, cleanup } = harness;
