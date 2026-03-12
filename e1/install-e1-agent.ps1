@@ -9,22 +9,52 @@ param(
 
   [string]$DisplayName = "",
 
-  [string]$AgentExePath = ".\e1-agent.exe",
+  [string]$AgentExePath = "",
 
   [switch]$Foreground
 )
 
 $ErrorActionPreference = "Stop"
 
-if (-not (Test-Path -LiteralPath $AgentExePath)) {
-  throw "Agent executable not found at '$AgentExePath'. Build or copy e1-agent.exe first."
+function Resolve-AgentExePath([string]$requestedPath, [string]$scriptRoot, [string]$defaultExeName) {
+  $candidates = @()
+  $trimmedPath = $requestedPath.Trim()
+
+  if (-not [string]::IsNullOrWhiteSpace($trimmedPath)) {
+    if ([System.IO.Path]::IsPathRooted($trimmedPath)) {
+      $candidates += $trimmedPath
+    } else {
+      $candidates += (Join-Path (Get-Location).Path $trimmedPath)
+      $candidates += (Join-Path $scriptRoot $trimmedPath)
+    }
+  } else {
+    $usbName = $defaultExeName -replace "\.exe$", "-usb.exe"
+    $candidates += (Join-Path $scriptRoot $defaultExeName)
+    $candidates += (Join-Path $scriptRoot (Join-Path "dist" $usbName))
+    $candidates += (Join-Path $scriptRoot (Join-Path "dist" $defaultExeName))
+  }
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate) {
+      return [System.IO.Path]::GetFullPath($candidate)
+    }
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($trimmedPath)) {
+    throw "Agent executable not found. Checked path '$trimmedPath' from current directory and script directory."
+  }
+
+  throw "Agent executable not found. Build or copy e1-agent.exe (or dist\\e1-agent-usb.exe) first."
 }
+
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$resolvedAgentExePath = Resolve-AgentExePath -requestedPath $AgentExePath -scriptRoot $scriptRoot -defaultExeName "e1-agent.exe"
 
 $installRoot = Join-Path $env:LOCALAPPDATA "E1Agent"
 New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
 
 $installedExe = Join-Path $installRoot "e1-agent.exe"
-Copy-Item -LiteralPath $AgentExePath -Destination $installedExe -Force
+Copy-Item -LiteralPath $resolvedAgentExePath -Destination $installedExe -Force
 
 $args = @(
   "--server-url", $ServerUrl,

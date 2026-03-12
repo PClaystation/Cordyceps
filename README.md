@@ -255,6 +255,7 @@ Common usage:
 ```
 
 If `server/data/secrets.json` exists, `-BootstrapToken` is optional for `build-usb` and `install`.
+For `install`, `ops/cordyceps.ps1` now auto-detects a local agent binary from that strain folder (`<strain>/<name>.exe`, then `dist/<name>-usb.exe`, then `dist/<name>.exe`) so it works regardless of your current shell location.
 
 ### Fastest way to colonize another device (T1 agent)
 
@@ -378,6 +379,12 @@ Management:
 ```bash
 cd agent
 go build -o cordyceps-agent.exe ./cmd/agent
+```
+
+Optional sanity check before enrollment:
+
+```powershell
+.\cordyceps-agent.exe --print-version
 ```
 
 3. First-run enrollment:

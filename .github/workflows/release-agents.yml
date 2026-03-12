@@ -111,6 +111,34 @@ jobs:
             }
           }
 
+      - name: Verify reported versions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ steps.meta.outputs.version }}"
+
+          $binaries = @(
+            "cordyceps-agent.exe",
+            "t1-agent.exe",
+            "s1-agent.exe",
+            "e1-agent.exe",
+            "se1-agent.exe",
+            "a1-agent.exe"
+          )
+
+          foreach ($binary in $binaries) {
+            $path = Join-Path "release" $binary
+            $reported = & $path --print-version
+            if ($LASTEXITCODE -ne 0) {
+              throw "$binary failed to print its version"
+            }
+
+            $actual = "$reported".Trim()
+            if ($actual -ne $version) {
+              throw "$binary reported version '$actual' but expected '$version'"
+            }
+          }
+
       - name: Sign binaries (optional)
         shell: pwsh
         env:

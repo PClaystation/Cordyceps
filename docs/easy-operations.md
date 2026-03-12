@@ -62,6 +62,7 @@ Run on the target Windows device:
 ```
 
 `-BootstrapToken` can also be omitted here if `server/data/secrets.json` exists.
+If you do not pass `-AgentExePath`, the wrapper auto-detects the strain binary from that folder (`<strain>/<name>.exe`, then `dist/<name>-usb.exe`, then `dist/<name>.exe`).
 
 Optional extras:
 

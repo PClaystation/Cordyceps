@@ -9,23 +9,54 @@ param(
 
   [string]$DisplayName = "",
 
-  [string]$AgentExePath = ".\cordyceps-agent.exe",
+  [string]$AgentExePath = "",
 
   [switch]$Foreground
 )
 
 $ErrorActionPreference = "Stop"
 
-if (-not (Test-Path -LiteralPath $AgentExePath)) {
-  throw "Agent executable not found at '$AgentExePath'. Build or copy cordyceps-agent.exe first."
+function Resolve-AgentExePath([string]$requestedPath, [string]$scriptRoot, [string]$defaultExeName) {
+  $candidates = @()
+  $trimmedPath = $requestedPath.Trim()
+
+  if (-not [string]::IsNullOrWhiteSpace($trimmedPath)) {
+    if ([System.IO.Path]::IsPathRooted($trimmedPath)) {
+      $candidates += $trimmedPath
+    } else {
+      $candidates += (Join-Path (Get-Location).Path $trimmedPath)
+      $candidates += (Join-Path $scriptRoot $trimmedPath)
+    }
+  } else {
+    $usbName = $defaultExeName -replace "\.exe$", "-usb.exe"
+    $candidates += (Join-Path $scriptRoot $defaultExeName)
+    $candidates += (Join-Path $scriptRoot (Join-Path "dist" $usbName))
+    $candidates += (Join-Path $scriptRoot (Join-Path "dist" $defaultExeName))
+    $candidates += (Join-Path $scriptRoot "jarvis-agent.exe")
+  }
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate) {
+      return [System.IO.Path]::GetFullPath($candidate)
+    }
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($trimmedPath)) {
+    throw "Agent executable not found. Checked path '$trimmedPath' from current directory and script directory."
+  }
+
+  throw "Agent executable not found. Build or copy cordyceps-agent.exe first."
 }
+
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$resolvedAgentExePath = Resolve-AgentExePath -requestedPath $AgentExePath -scriptRoot $scriptRoot -defaultExeName "cordyceps-agent.exe"
 
 $installRoot = Join-Path $env:LOCALAPPDATA "CordycepsAgent"
 $legacyInstallRoot = Join-Path $env:LOCALAPPDATA "JarvisAgent"
 New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
 
 $installedExe = Join-Path $installRoot "cordyceps-agent.exe"
-Copy-Item -LiteralPath $AgentExePath -Destination $installedExe -Force
+Copy-Item -LiteralPath $resolvedAgentExePath -Destination $installedExe -Force
 
 $legacyExe = Join-Path $legacyInstallRoot "jarvis-agent.exe"
 if (Test-Path -LiteralPath $legacyExe) {

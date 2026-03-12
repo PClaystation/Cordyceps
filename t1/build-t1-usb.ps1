@@ -34,11 +34,20 @@ $buildArgs = @(
 )
 
 Push-Location $scriptRoot
+$oldGoos = $env:GOOS
+$oldGoarch = $env:GOARCH
+$oldCgoEnabled = $env:CGO_ENABLED
+$env:GOOS = "windows"
+$env:GOARCH = "amd64"
+$env:CGO_ENABLED = "0"
 try {
   & go @buildArgs
   Write-Host "Built USB-ready agent: $outputFullPath"
   Write-Host "Usage on target PC: double-click the EXE once."
 }
 finally {
+  $env:GOOS = $oldGoos
+  $env:GOARCH = $oldGoarch
+  $env:CGO_ENABLED = $oldCgoEnabled
   Pop-Location
 }

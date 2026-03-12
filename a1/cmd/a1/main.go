@@ -77,6 +77,7 @@ func main() {
 		enrollOnlyFlag     bool
 		foregroundFlag     bool
 		runAgentFlag       bool
+		printVersionFlag   bool
 	)
 
 	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("A1_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://jarvis.example)")
@@ -88,6 +89,7 @@ func main() {
 	flag.BoolVar(&enrollOnlyFlag, "enroll-only", false, "Enroll and exit")
 	flag.BoolVar(&foregroundFlag, "foreground", false, "Run in the current console instead of background mode (Windows)")
 	flag.BoolVar(&runAgentFlag, "run-agent", false, "Internal flag used for detached relaunch")
+	flag.BoolVar(&printVersionFlag, "print-version", false, "Print effective version and exit")
 	flag.Parse()
 
 	versionFlagExplicit := false
@@ -96,6 +98,19 @@ func main() {
 			versionFlagExplicit = true
 		}
 	})
+	versionFlag = strings.TrimSpace(versionFlag)
+
+	if printVersionFlag {
+		effectiveVersion := versionFlag
+		if effectiveVersion == "" {
+			effectiveVersion = strings.TrimSpace(defaultVersion)
+		}
+		if effectiveVersion == "" {
+			effectiveVersion = "0.1.0"
+		}
+		fmt.Println(effectiveVersion)
+		return
+	}
 
 	log.SetFlags(log.LstdFlags | log.LUTC)
 	configureLogging(foregroundFlag, enrollOnlyFlag)
@@ -144,7 +159,7 @@ func main() {
 	}()
 
 	if enrollOnlyFlag {
-		if _, err := initializeAgent(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), strings.TrimSpace(versionFlag), versionFlagExplicit, executablePath, execPathErr == nil); err != nil {
+		if _, err := initializeAgent(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), versionFlag, versionFlagExplicit, executablePath, execPathErr == nil); err != nil {
 			log.Fatalf("initialize agent: %v", err)
 		}
 		return
@@ -157,7 +172,7 @@ func main() {
 		go maintainStartupRegistration(ctx, executablePath)
 	}
 
-	superviseAgent(ctx, cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), strings.TrimSpace(versionFlag), versionFlagExplicit, executablePath, execPathErr == nil)
+	superviseAgent(ctx, cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), versionFlag, versionFlagExplicit, executablePath, execPathErr == nil)
 }
 
 func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, displayNameInput string, bootstrapToken string, version string) (*config.Config, error) {

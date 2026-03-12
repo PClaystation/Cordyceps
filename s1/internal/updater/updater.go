@@ -148,6 +148,12 @@ func parseRequest(args map[string]any) (updateRequest, error) {
 	if parsedURL.Scheme != "https" {
 		return updateRequest{}, errors.New("url must use https")
 	}
+	if parsedURL.Host == "" {
+		return updateRequest{}, errors.New("url must include a host")
+	}
+	if parsedURL.User != nil {
+		return updateRequest{}, errors.New("url must not include credentials")
+	}
 
 	shaValue, err := readStringArg(args, "sha256")
 	if err != nil {
@@ -413,11 +419,15 @@ func prepareMigratedConfig(currentConfigPath string, nextDeviceID string, versio
 }
 
 func configPathForDeviceID(deviceID string) (string, error) {
-	prefix := leadingLetter(deviceID)
+	deviceClass := deviceConfigClass(deviceID)
 	appData := strings.TrimSpace(os.Getenv("APPDATA"))
 	if appData != "" {
-		switch prefix {
+		switch deviceClass {
 		case "t":
+			return filepath.Join(appData, "T1Agent", "config.json"), nil
+		case "se":
+			return filepath.Join(appData, "SE1Agent", "config.json"), nil
+		case "s":
 			return filepath.Join(appData, "S1Agent", "config.json"), nil
 		case "e":
 			return filepath.Join(appData, "E1Agent", "config.json"), nil
@@ -433,8 +443,12 @@ func configPathForDeviceID(deviceID string) (string, error) {
 		return "", fmt.Errorf("resolve home directory: %w", err)
 	}
 
-	switch prefix {
+	switch deviceClass {
 	case "t":
+		return filepath.Join(homeDir, ".t1-agent", "config.json"), nil
+	case "se":
+		return filepath.Join(homeDir, ".se1-agent", "config.json"), nil
+	case "s":
 		return filepath.Join(homeDir, ".s1-agent", "config.json"), nil
 	case "e":
 		return filepath.Join(homeDir, ".e1-agent", "config.json"), nil
@@ -445,14 +459,22 @@ func configPathForDeviceID(deviceID string) (string, error) {
 	}
 }
 
-func leadingLetter(value string) string {
-	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
-		if r >= 'a' && r <= 'z' {
-			return string(r)
-		}
+func deviceConfigClass(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case strings.HasPrefix(normalized, "se"):
+		return "se"
+	case strings.HasPrefix(normalized, "s"):
+		return "s"
+	case strings.HasPrefix(normalized, "t"):
+		return "t"
+	case strings.HasPrefix(normalized, "e"):
+		return "e"
+	case strings.HasPrefix(normalized, "a"):
+		return "a"
+	default:
+		return "core"
 	}
-
-	return ""
 }
 
 func launchUpdaterScript(scriptPath string, usePrivilegedHelper bool) error {

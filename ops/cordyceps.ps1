@@ -32,36 +32,42 @@ $strainConfigs = @{
     BuildScript = $null
     InstallScript = "install-jarvis-agent.ps1"
     ManageScript = "manage-jarvis-agent.ps1"
+    ExeName = "cordyceps-agent.exe"
   }
   "t1" = @{
     Dir = "t1"
     BuildScript = "build-t1-usb.ps1"
     InstallScript = "install-t1-agent.ps1"
     ManageScript = "manage-t1-agent.ps1"
+    ExeName = "t1-agent.exe"
   }
   "s1" = @{
     Dir = "s1"
     BuildScript = "build-s1-usb.ps1"
     InstallScript = "install-s1-agent.ps1"
     ManageScript = "manage-s1-agent.ps1"
+    ExeName = "s1-agent.exe"
   }
   "se1" = @{
     Dir = "se1"
     BuildScript = "build-se1-usb.ps1"
     InstallScript = "install-se1-agent.ps1"
     ManageScript = "manage-se1-agent.ps1"
+    ExeName = "se1-agent.exe"
   }
   "e1" = @{
     Dir = "e1"
     BuildScript = "build-e1-usb.ps1"
     InstallScript = "install-e1-agent.ps1"
     ManageScript = "manage-e1-agent.ps1"
+    ExeName = "e1-agent.exe"
   }
   "a1" = @{
     Dir = "a1"
     BuildScript = "build-a1-usb.ps1"
     InstallScript = "install-a1-agent.ps1"
     ManageScript = "manage-a1-agent.ps1"
+    ExeName = "a1-agent.exe"
   }
 }
 
@@ -120,6 +126,26 @@ function Invoke-RepoScript([string]$relativeScriptPath, [string[]]$arguments) {
   & $scriptPath @arguments
 }
 
+function Resolve-DefaultAgentExePath([hashtable]$strainConfig) {
+  $strainDir = Join-Path $repoRoot $strainConfig.Dir
+  $exeName = [string]$strainConfig.ExeName
+  $usbExeName = $exeName -replace "\.exe$", "-usb.exe"
+
+  $candidates = @(
+    (Join-Path $strainDir $exeName),
+    (Join-Path $strainDir (Join-Path "dist" $usbExeName)),
+    (Join-Path $strainDir (Join-Path "dist" $exeName))
+  )
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate) {
+      return [System.IO.Path]::GetFullPath($candidate)
+    }
+  }
+
+  return ""
+}
+
 function Show-Help {
   Write-Host "Cordyceps Easy Operator Script"
   Write-Host ""
@@ -151,6 +177,7 @@ function Show-Help {
   Write-Host "  .\\ops\\cordyceps.ps1 -Action uninstall -Strain t"
   Write-Host ""
   Write-Host "Tip: -BootstrapToken is optional if server/data/secrets.json exists."
+  Write-Host "Tip: install auto-detects agent binaries from each strain folder if -AgentExePath is omitted."
 }
 
 if ($Action -eq "help") {
@@ -226,6 +253,16 @@ switch ($Action) {
       "-BootstrapToken", $effectiveBootstrapToken
     )
 
+    $resolvedAgentExePath = ""
+    if (-not [string]::IsNullOrWhiteSpace($AgentExePath)) {
+      $resolvedAgentExePath = [System.IO.Path]::GetFullPath($AgentExePath)
+    } else {
+      $resolvedAgentExePath = Resolve-DefaultAgentExePath $strainConfig
+      if (-not [string]::IsNullOrWhiteSpace($resolvedAgentExePath)) {
+        Write-Host "Using detected agent binary: $resolvedAgentExePath"
+      }
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($DeviceId)) {
       $installArgs += @("-DeviceId", $DeviceId)
     }
@@ -235,7 +272,9 @@ switch ($Action) {
     }
 
     if (-not [string]::IsNullOrWhiteSpace($AgentExePath)) {
-      $installArgs += @("-AgentExePath", $AgentExePath)
+      $installArgs += @("-AgentExePath", $resolvedAgentExePath)
+    } elseif (-not [string]::IsNullOrWhiteSpace($resolvedAgentExePath)) {
+      $installArgs += @("-AgentExePath", $resolvedAgentExePath)
     }
 
     if ($Foreground.IsPresent) {
