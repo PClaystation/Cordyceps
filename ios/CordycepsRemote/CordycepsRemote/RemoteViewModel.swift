@@ -1273,6 +1273,18 @@ final class RemoteViewModel: ObservableObject {
       return "media_control"
     }
 
+    if ["brightness up", "brightness down", "display off", "screen off", "monitor off"].contains(normalized) {
+      return "display_control"
+    }
+
+    if ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12"].contains(normalized) {
+      return "keyboard_control"
+    }
+
+    if ["enter", "escape", "tab", "space", "up", "down", "left", "right", "backspace", "delete", "home", "end", "page up", "page down", "copy shortcut", "paste shortcut", "cut shortcut", "undo shortcut", "redo shortcut", "select all shortcut", "alt tab", "alt f4"].contains(normalized) {
+      return "advanced_keyboard_control"
+    }
+
     if normalized.hasPrefix("open ") {
       return "open_app"
     }
@@ -1287,10 +1299,6 @@ final class RemoteViewModel: ObservableObject {
 
     if ["clipboard", "copy"].contains(normalized) {
       return "clipboard_control"
-    }
-
-    if ["display off", "screen off", "monitor off"].contains(normalized) {
-      return "display_control"
     }
 
     if ["sleep", "sleep pc", "shutdown", "restart"].contains(normalized) {

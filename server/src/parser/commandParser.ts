@@ -71,6 +71,30 @@ const VOLUME_DOWN_PREFIXES = [
   "reduce the volume",
   "make it quieter",
 ];
+const BRIGHTNESS_UP_PREFIXES = [
+  "brightness up",
+  "increase brightness",
+  "increase screen brightness",
+  "increase display brightness",
+  "raise brightness",
+  "raise screen brightness",
+  "raise display brightness",
+  "make it brighter",
+  "make screen brighter",
+  "make display brighter",
+];
+const BRIGHTNESS_DOWN_PREFIXES = [
+  "brightness down",
+  "decrease brightness",
+  "decrease screen brightness",
+  "decrease display brightness",
+  "lower brightness",
+  "lower screen brightness",
+  "lower display brightness",
+  "dim screen",
+  "dim display",
+  "make it dimmer",
+];
 
 const MEDIA_NEXT_PREFIXES = ["next track", "skip track", "next", "skip"];
 const MEDIA_PREVIOUS_PREFIXES = ["previous track", "previous", "prev", "back"];
@@ -124,6 +148,8 @@ const EXACT_COMMANDS: Record<string, CommandType> = {
   pause: "MEDIA_PAUSE",
   "play pause": "MEDIA_PLAY_PAUSE",
   toggle: "MEDIA_PLAY_PAUSE",
+  brighter: "BRIGHTNESS_UP",
+  dimmer: "BRIGHTNESS_DOWN",
   mute: "MUTE",
   "mute volume": "MUTE",
   "mute the volume": "MUTE",
@@ -154,6 +180,95 @@ const EXACT_COMMANDS: Record<string, CommandType> = {
   restart: "SYSTEM_RESTART",
   reboot: "SYSTEM_RESTART",
   "restart pc": "SYSTEM_RESTART",
+  f1: "KEY_F1",
+  "press f1": "KEY_F1",
+  "function 1": "KEY_F1",
+  f2: "KEY_F2",
+  "press f2": "KEY_F2",
+  "function 2": "KEY_F2",
+  f3: "KEY_F3",
+  "press f3": "KEY_F3",
+  "function 3": "KEY_F3",
+  f4: "KEY_F4",
+  "press f4": "KEY_F4",
+  "function 4": "KEY_F4",
+  f5: "KEY_F5",
+  "press f5": "KEY_F5",
+  "function 5": "KEY_F5",
+  f6: "KEY_F6",
+  "press f6": "KEY_F6",
+  "function 6": "KEY_F6",
+  f7: "KEY_F7",
+  "press f7": "KEY_F7",
+  "function 7": "KEY_F7",
+  f8: "KEY_F8",
+  "press f8": "KEY_F8",
+  "function 8": "KEY_F8",
+  f9: "KEY_F9",
+  "press f9": "KEY_F9",
+  "function 9": "KEY_F9",
+  f10: "KEY_F10",
+  "press f10": "KEY_F10",
+  "function 10": "KEY_F10",
+  f11: "KEY_F11",
+  "press f11": "KEY_F11",
+  "function 11": "KEY_F11",
+  f12: "KEY_F12",
+  "press f12": "KEY_F12",
+  "function 12": "KEY_F12",
+  enter: "KEY_ENTER",
+  "press enter": "KEY_ENTER",
+  return: "KEY_ENTER",
+  escape: "KEY_ESCAPE",
+  esc: "KEY_ESCAPE",
+  "press escape": "KEY_ESCAPE",
+  "press esc": "KEY_ESCAPE",
+  tab: "KEY_TAB",
+  "press tab": "KEY_TAB",
+  space: "KEY_SPACE",
+  "press space": "KEY_SPACE",
+  "space bar": "KEY_SPACE",
+  up: "KEY_UP",
+  "arrow up": "KEY_UP",
+  "up arrow": "KEY_UP",
+  down: "KEY_DOWN",
+  "arrow down": "KEY_DOWN",
+  "down arrow": "KEY_DOWN",
+  left: "KEY_LEFT",
+  "arrow left": "KEY_LEFT",
+  "left arrow": "KEY_LEFT",
+  right: "KEY_RIGHT",
+  "arrow right": "KEY_RIGHT",
+  "right arrow": "KEY_RIGHT",
+  backspace: "KEY_BACKSPACE",
+  "press backspace": "KEY_BACKSPACE",
+  delete: "KEY_DELETE",
+  del: "KEY_DELETE",
+  "press delete": "KEY_DELETE",
+  home: "KEY_HOME",
+  "press home": "KEY_HOME",
+  end: "KEY_END",
+  "press end": "KEY_END",
+  "page up": "KEY_PAGE_UP",
+  pgup: "KEY_PAGE_UP",
+  "page down": "KEY_PAGE_DOWN",
+  pgdn: "KEY_PAGE_DOWN",
+  "copy shortcut": "SHORTCUT_COPY",
+  "ctrl c": "SHORTCUT_COPY",
+  "paste shortcut": "SHORTCUT_PASTE",
+  "ctrl v": "SHORTCUT_PASTE",
+  "cut shortcut": "SHORTCUT_CUT",
+  "ctrl x": "SHORTCUT_CUT",
+  "undo shortcut": "SHORTCUT_UNDO",
+  "ctrl z": "SHORTCUT_UNDO",
+  "redo shortcut": "SHORTCUT_REDO",
+  "ctrl y": "SHORTCUT_REDO",
+  "select all shortcut": "SHORTCUT_SELECT_ALL",
+  "ctrl a": "SHORTCUT_SELECT_ALL",
+  "alt tab": "SHORTCUT_ALT_TAB",
+  "press alt tab": "SHORTCUT_ALT_TAB",
+  "alt f4": "SHORTCUT_ALT_F4",
+  "press alt f4": "SHORTCUT_ALT_F4",
 };
 
 function normalized(text: string): string {
@@ -225,6 +340,25 @@ function parseRepeatCount(value: string): number | null {
   return null;
 }
 
+function parseBrightnessAmount(value: string): number | null {
+  const cleaned = stripTrailingPunctuation(value).trim();
+  if (!cleaned) {
+    return null;
+  }
+
+  const digitMatch = cleaned.match(/^(\d+)(?:\s*%)?$/);
+  if (digitMatch) {
+    return Number.parseInt(digitMatch[1], 10);
+  }
+
+  const wordMatch = cleaned.match(/^([a-z]+)$/);
+  if (wordMatch) {
+    return STEP_WORDS[wordMatch[1]] ?? null;
+  }
+
+  return null;
+}
+
 function buildNoArgCommand(type: CommandType): TypedCommand {
   return { type, args: {} };
 }
@@ -262,6 +396,48 @@ function parseRepeatSteps(
     return {
       type,
       args: steps > 1 ? { steps } : {},
+    };
+  }
+
+  return null;
+}
+
+function parseBrightnessChange(
+  commandPhrase: string,
+  prefixes: string[],
+  type: "BRIGHTNESS_UP" | "BRIGHTNESS_DOWN",
+): TypedCommand | ParseError | null {
+  for (const prefix of prefixes) {
+    if (!matchesWordPrefix(commandPhrase, prefix)) {
+      continue;
+    }
+
+    const suffix = stripPoliteSuffix(commandPhrase.slice(prefix.length).trim());
+    if (!suffix) {
+      return {
+        type,
+        args: { amount: 10 },
+      };
+    }
+
+    const amount = parseBrightnessAmount(suffix);
+    if (amount === null) {
+      return {
+        code: "MALFORMED_ARGUMENT",
+        message: `${prefix.trim()} supports optional percentage only`,
+      };
+    }
+
+    if (!Number.isFinite(amount) || amount < 1 || amount > 100) {
+      return {
+        code: "MALFORMED_ARGUMENT",
+        message: `${prefix.trim()} amount must be between 1 and 100`,
+      };
+    }
+
+    return {
+      type,
+      args: { amount },
     };
   }
 
@@ -886,6 +1062,8 @@ function parseCommandPhrase(rawCommandPhrase: string, normalizedCommandPhrase: s
   const repeatCommand =
     parseRepeatSteps(normalizedPhrase, VOLUME_UP_PREFIXES, "VOLUME_UP") ??
     parseRepeatSteps(normalizedPhrase, VOLUME_DOWN_PREFIXES, "VOLUME_DOWN") ??
+    parseBrightnessChange(normalizedPhrase, BRIGHTNESS_UP_PREFIXES, "BRIGHTNESS_UP") ??
+    parseBrightnessChange(normalizedPhrase, BRIGHTNESS_DOWN_PREFIXES, "BRIGHTNESS_DOWN") ??
     parseRepeatSteps(normalizedPhrase, MEDIA_NEXT_PREFIXES, "MEDIA_NEXT") ??
     parseRepeatSteps(normalizedPhrase, MEDIA_PREVIOUS_PREFIXES, "MEDIA_PREVIOUS");
   if (repeatCommand) {

@@ -33,7 +33,21 @@ var enabledCommandTypes = map[string]struct{}{
 	"MEDIA_PREVIOUS":     {},
 	"VOLUME_UP":          {},
 	"VOLUME_DOWN":        {},
+	"BRIGHTNESS_UP":      {},
+	"BRIGHTNESS_DOWN":    {},
 	"MUTE":               {},
+	"KEY_F1":             {},
+	"KEY_F2":             {},
+	"KEY_F3":             {},
+	"KEY_F4":             {},
+	"KEY_F5":             {},
+	"KEY_F6":             {},
+	"KEY_F7":             {},
+	"KEY_F8":             {},
+	"KEY_F9":             {},
+	"KEY_F10":            {},
+	"KEY_F11":            {},
+	"KEY_F12":            {},
 	"LOCK_PC":            {},
 	"NOTIFY":             {},
 	"CLIPBOARD_SET":      {},
@@ -83,6 +97,7 @@ func Capabilities() []string {
 		"notifications",
 		"clipboard_control",
 		"display_control",
+		"keyboard_control",
 		"locking",
 		"emergency_lockdown",
 		"open_app",
@@ -94,11 +109,11 @@ func Capabilities() []string {
 
 func Execute(deviceID string, version string, command protocol.CommandEnvelope) (result protocol.ResultMessage) {
 	result = protocol.ResultMessage{
-		Kind:        "result",
-		RequestID:   command.RequestID,
-		DeviceID:    deviceID,
-		CompletedAt: time.Now().UTC().Format(time.RFC3339),
-		Version:     version,
+		Kind:          "result",
+		RequestID:     command.RequestID,
+		DeviceID:      deviceID,
+		CompletedAt:   time.Now().UTC().Format(time.RFC3339),
+		Version:       version,
 		ResultPayload: map[string]any{"command_type": strings.ToUpper(strings.TrimSpace(command.Type))},
 	}
 
@@ -242,6 +257,32 @@ func Execute(deviceID string, version string, command protocol.CommandEnvelope) 
 			result.Message = "Volume down command sent"
 		}
 		return result
+	case "BRIGHTNESS_UP":
+		amount, err := readOptionalIntArg(command.Args, "amount", 10, 1, 100)
+		if err != nil {
+			return handleErr(err, "INVALID_ARGS")
+		}
+
+		if err := adjustBrightness(amount, true); err != nil {
+			return handleErr(err, "DISPLAY_FAILED")
+		}
+
+		result.OK = true
+		result.Message = fmt.Sprintf("Brightness increased by %d%%", amount)
+		return result
+	case "BRIGHTNESS_DOWN":
+		amount, err := readOptionalIntArg(command.Args, "amount", 10, 1, 100)
+		if err != nil {
+			return handleErr(err, "INVALID_ARGS")
+		}
+
+		if err := adjustBrightness(amount, false); err != nil {
+			return handleErr(err, "DISPLAY_FAILED")
+		}
+
+		result.OK = true
+		result.Message = fmt.Sprintf("Brightness decreased by %d%%", amount)
+		return result
 	case "MUTE":
 		if err := sendMediaKey("VOLUME_MUTE"); err != nil {
 			return handleErr(err, "VOLUME_FAILED")
@@ -249,6 +290,15 @@ func Execute(deviceID string, version string, command protocol.CommandEnvelope) 
 
 		result.OK = true
 		result.Message = "Mute command sent"
+		return result
+	case "KEY_F1", "KEY_F2", "KEY_F3", "KEY_F4", "KEY_F5", "KEY_F6", "KEY_F7", "KEY_F8", "KEY_F9", "KEY_F10", "KEY_F11", "KEY_F12":
+		key := strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(command.Type)), "KEY_")
+		if err := sendMediaKey(key); err != nil {
+			return handleErr(err, "KEYBOARD_FAILED")
+		}
+
+		result.OK = true
+		result.Message = fmt.Sprintf("%s key sent", key)
 		return result
 	case "LOCK_PC":
 		if err := lockPC(); err != nil {
@@ -490,6 +540,38 @@ func displayOff() error {
 
 	if err := runWithTimeout(cmd, commandTimeout); err != nil {
 		return fmt.Errorf("turn display off: %w", err)
+	}
+
+	return nil
+}
+
+func adjustBrightness(amount int, increase bool) error {
+	if runtime.GOOS != "windows" {
+		return errors.New("brightness control is supported only on Windows")
+	}
+
+	script := fmt.Sprintf(`
+$amount = %d
+$increase = $%t
+$monitor = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction SilentlyContinue | Select-Object -First 1
+$methods = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $monitor -or -not $methods) {
+  throw "no supported brightness control found"
+}
+
+$current = [int]$monitor.CurrentBrightness
+if ($increase) {
+  $target = [Math]::Min(100, $current + $amount)
+} else {
+  $target = [Math]::Max(0, $current - $amount)
+}
+
+Invoke-CimMethod -InputObject $methods -MethodName WmiSetBrightness -Arguments @{ Timeout = [uint32]1; Brightness = [byte]$target } | Out-Null
+`, amount, increase)
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script)
+
+	if err := runWithTimeout(cmd, commandTimeout); err != nil {
+		return fmt.Errorf("adjust brightness: %w", err)
 	}
 
 	return nil
