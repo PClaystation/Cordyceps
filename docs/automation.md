@@ -72,6 +72,6 @@ If these are not set, release builds still run and publish unsigned artifacts.
 
 ## Binary Artifact Policy
 
-Built `.exe` files should be published via Releases/artifacts, not committed to git.
+Built release `.exe` files and generated release manifests should be published via Releases/artifacts, not committed to git.
 
-The repository `.gitignore` now ignores `*/dist/*.exe` and previously tracked T1 binaries were untracked.
+The repository `.gitignore` ignores local module `.exe` files, generated `release/*` artifacts, all `*/dist/` outputs, and any `*-agent-usb.exe` bootstrap binary.

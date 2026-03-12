@@ -12,8 +12,16 @@ server/data/
 # Go
 agent/bin/
 agent/*.exe
+a1/*.exe
+e1/*.exe
+s1/*.exe
+se1/*.exe
+release/*.exe
+release/SHA256SUMS.txt
+release/release-manifest.json
 agent/dist/
-*/dist/*.exe
+*/dist/
+*-agent-usb.exe
 
 # Editor/OS
 .DS_Store
@@ -23,6 +31,7 @@ agent/dist/
 # Xcode
 DerivedData/
 *.xcuserstate
+xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 
