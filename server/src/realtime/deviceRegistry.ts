@@ -1,3 +1,5 @@
+import type { DeviceInfoRecord } from "../types/protocol";
+
 export interface SocketLike {
   send(data: string): void;
   ping?(data?: Buffer | string, cb?: (error?: Error) => void): void;
@@ -13,6 +15,7 @@ export interface ConnectedDevice {
   hostname: string;
   username: string;
   capabilities: string[];
+  deviceInfo?: DeviceInfoRecord;
   connectedAt: number;
   lastSeenAt: number;
 }

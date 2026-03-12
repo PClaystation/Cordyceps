@@ -51,6 +51,19 @@
         </div>
         <p class="muted">Maps custom `open ...` phrases to built-in app targets for one device.</p>
         <div id="deviceCards" class="device-cards"></div>
+        <div id="deviceInspectPanel" class="device-inspect hidden">
+          <div class="device-inspect-header">
+            <h3 id="deviceInspectTitle">Device Inspector</h3>
+            <div class="device-inspect-actions">
+              <button id="refreshDeviceInspectBtn" type="button">Refresh</button>
+              <button id="closeDeviceInspectBtn" type="button">Close</button>
+            </div>
+          </div>
+          <p id="deviceInspectMeta" class="muted">Select a device card and choose Inspect.</p>
+          <div id="deviceInspectSections" class="history-list"></div>
+          <label for="deviceInspectRaw">Raw Device Info JSON</label>
+          <pre id="deviceInspectRaw" class="result">No device selected.</pre>
+        </div>
         <ul id="deviceList" class="list"></ul>
       </section>
 

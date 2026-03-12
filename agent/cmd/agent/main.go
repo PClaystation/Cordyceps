@@ -462,6 +462,9 @@ func runSession(ctx context.Context, cfg *config.Config, cfgPath string) error {
 		username = "unknown-user"
 	}
 
+	capabilities := commands.Capabilities()
+	deviceInfo := collectDeviceInfo(hostname, username, capabilities)
+
 	hello := protocol.HelloMessage{
 		Kind:         "hello",
 		DeviceID:     cfg.DeviceID,
@@ -469,7 +472,8 @@ func runSession(ctx context.Context, cfg *config.Config, cfgPath string) error {
 		Version:      cfg.Version,
 		Hostname:     hostname,
 		Username:     username,
-		Capabilities: commands.Capabilities(),
+		Capabilities: capabilities,
+		DeviceInfo:   deviceInfo,
 	}
 
 	conn.SetWriteDeadline(time.Now().Add(8 * time.Second))

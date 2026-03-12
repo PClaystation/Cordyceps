@@ -4,6 +4,7 @@ import type {
   AgentHeartbeatMessage,
   AgentHelloMessage,
   AgentResultMessage,
+  DeviceInfoRecord,
 } from "../types/protocol";
 import type { Database } from "../db/database";
 import { CommandRouter } from "../router/commandRouter";
@@ -180,6 +181,90 @@ function normalizeOptionalObject(value: unknown): Record<string, unknown> | null
   return value as Record<string, unknown>;
 }
 
+function normalizeOptionalDeviceInfo(value: unknown): DeviceInfoRecord | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const normalized = normalizeDeviceInfoValue(value, 0);
+  if (!normalized || typeof normalized !== "object" || Array.isArray(normalized)) {
+    return undefined;
+  }
+
+  return normalized as DeviceInfoRecord;
+}
+
+function normalizeDeviceInfoValue(value: unknown, depth: number): unknown {
+  if (depth > 4) {
+    return undefined;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    return trimmed.slice(0, 500);
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return undefined;
+    }
+
+    return value;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const output: unknown[] = [];
+    for (const item of value) {
+      if (output.length >= 80) {
+        break;
+      }
+
+      const normalizedItem = normalizeDeviceInfoValue(item, depth + 1);
+      if (normalizedItem === undefined) {
+        continue;
+      }
+
+      output.push(normalizedItem);
+    }
+
+    return output;
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const output: Record<string, unknown> = {};
+  const entries = Object.entries(value as Record<string, unknown>);
+  for (const [rawKey, rawValue] of entries) {
+    if (Object.keys(output).length >= 120) {
+      break;
+    }
+
+    const key = rawKey.trim().toLowerCase().slice(0, 80);
+    if (!key) {
+      continue;
+    }
+
+    const normalizedValue = normalizeDeviceInfoValue(rawValue, depth + 1);
+    if (normalizedValue === undefined) {
+      continue;
+    }
+
+    output[key] = normalizedValue;
+  }
+
+  return output;
+}
+
 function makeUpdateRawText(deviceId: string, version: string, packageUrl: string): string {
   return `${deviceId} update ${version} ${packageUrl}`;
 }
@@ -234,6 +319,7 @@ function asHelloMessage(value: Record<string, unknown>): AgentHelloMessage | nul
   const hostname = normalizeRequiredString(value.hostname, 120);
   const username = normalizeRequiredString(value.username, 120);
   const capabilities = normalizeCapabilities(value.capabilities);
+  const deviceInfo = normalizeOptionalDeviceInfo(value.device_info);
 
   if (!deviceId || !token || !version || !hostname || !username || !capabilities) {
     return null;
@@ -251,6 +337,7 @@ function asHelloMessage(value: Record<string, unknown>): AgentHelloMessage | nul
     hostname,
     username,
     capabilities,
+    ...(deviceInfo ? { device_info: deviceInfo } : {}),
   };
 }
 
@@ -400,6 +487,7 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
             hostname: hello.hostname,
             username: hello.username,
             capabilities: hello.capabilities,
+            deviceInfo: hello.device_info,
           });
 
           deps.db.markDeviceOnline({
@@ -408,6 +496,7 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
             hostname: hello.hostname,
             username: hello.username,
             capabilities: hello.capabilities,
+            deviceInfo: hello.device_info,
           });
 
           deps.eventHub.publish("device_status", {
@@ -417,6 +506,7 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
             hostname: hello.hostname,
             username: hello.username,
             capabilities: hello.capabilities,
+            device_info: hello.device_info ?? null,
           });
 
           safeSendJson(socket, {

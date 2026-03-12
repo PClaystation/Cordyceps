@@ -13,6 +13,13 @@ const saveAliasBtn = document.getElementById("saveAliasBtn");
 const deviceSummary = document.getElementById("deviceSummary");
 const deviceCards = document.getElementById("deviceCards");
 const deviceList = document.getElementById("deviceList");
+const deviceInspectPanel = document.getElementById("deviceInspectPanel");
+const deviceInspectTitle = document.getElementById("deviceInspectTitle");
+const deviceInspectMeta = document.getElementById("deviceInspectMeta");
+const deviceInspectSections = document.getElementById("deviceInspectSections");
+const deviceInspectRaw = document.getElementById("deviceInspectRaw");
+const refreshDeviceInspectBtn = document.getElementById("refreshDeviceInspectBtn");
+const closeDeviceInspectBtn = document.getElementById("closeDeviceInspectBtn");
 const authHint = document.getElementById("authHint");
 const connectionBadge = document.getElementById("connectionBadge");
 const lastSuccessLabel = document.getElementById("lastSuccessLabel");
@@ -409,6 +416,7 @@ let groupsById = new Map();
 let commandHistoryEntries = [];
 let commandHistoryNextBefore = null;
 let apiKeys = [];
+let inspectedDeviceId = "";
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -1028,6 +1036,310 @@ function renderCapabilityChips(capabilities) {
   return wrap;
 }
 
+function formatInspectValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return "n/a";
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "[]";
+    }
+    return value.map((item) => formatInspectValue(item)).join(", ");
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "yes" : "no";
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : "n/a";
+  }
+
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}
+
+function renderInspectKeyValueGrid(entries) {
+  const grid = document.createElement("div");
+  grid.className = "inspect-kv-grid";
+
+  for (const entry of entries) {
+    if (!entry || !entry.key) {
+      continue;
+    }
+
+    const card = document.createElement("article");
+    card.className = "inspect-kv";
+
+    const key = document.createElement("span");
+    key.className = "key";
+    key.textContent = entry.key;
+
+    const value = document.createElement("span");
+    value.className = "value";
+    value.textContent = formatInspectValue(entry.value);
+
+    card.appendChild(key);
+    card.appendChild(value);
+    grid.appendChild(card);
+  }
+
+  return grid;
+}
+
+function renderInspectPills(values, emptyText = "none") {
+  const wrap = document.createElement("div");
+  wrap.className = "inspect-pill-list";
+
+  if (!Array.isArray(values) || values.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "inspect-pill";
+    empty.textContent = emptyText;
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
+  for (const value of values) {
+    const pill = document.createElement("span");
+    pill.className = "inspect-pill";
+    pill.textContent = formatInspectValue(value);
+    wrap.appendChild(pill);
+  }
+
+  return wrap;
+}
+
+function appendDeviceInspectSection(title, content) {
+  if (!deviceInspectSections) {
+    return;
+  }
+
+  const section = document.createElement("article");
+  section.className = "history-item";
+
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  section.appendChild(heading);
+
+  if (typeof content === "string") {
+    const text = document.createElement("div");
+    text.className = "history-message";
+    text.textContent = content;
+    section.appendChild(text);
+  } else if (content instanceof Node) {
+    section.appendChild(content);
+  }
+
+  deviceInspectSections.appendChild(section);
+}
+
+function clearDeviceInspectView() {
+  if (deviceInspectTitle) {
+    deviceInspectTitle.textContent = "Device Inspector";
+  }
+  if (deviceInspectMeta) {
+    deviceInspectMeta.textContent = "Select a device card and choose Inspect.";
+  }
+  if (deviceInspectSections) {
+    deviceInspectSections.innerHTML = "";
+  }
+  if (deviceInspectRaw) {
+    deviceInspectRaw.textContent = "No device selected.";
+  }
+}
+
+function hideDeviceInspectView() {
+  inspectedDeviceId = "";
+  clearDeviceInspectView();
+  deviceInspectPanel?.classList.add("hidden");
+}
+
+function renderDeviceInspectView(payload) {
+  const device = payload && typeof payload === "object" ? payload.device || {} : {};
+  const realtime = payload && typeof payload === "object" ? payload.realtime || {} : {};
+  const aliases = Array.isArray(payload?.aliases) ? payload.aliases : [];
+  const queued = Array.isArray(payload?.queued_updates) ? payload.queued_updates : [];
+  const logs = Array.isArray(payload?.recent_logs) ? payload.recent_logs : [];
+  const deviceInfo =
+    (device && typeof device.device_info === "object" && !Array.isArray(device.device_info) ? device.device_info : null) ||
+    (realtime && typeof realtime.device_info === "object" && !Array.isArray(realtime.device_info) ? realtime.device_info : null) ||
+    {};
+
+  const deviceId = String(device.device_id || inspectedDeviceId || "").trim();
+  const displayName = String(device.display_name || "").trim();
+  const title = displayName || deviceId || "unknown-device";
+
+  if (deviceInspectTitle) {
+    deviceInspectTitle.textContent = `${title} Inspector`;
+  }
+
+  if (deviceInspectMeta) {
+    const status = String(device.status || "unknown").toLowerCase();
+    const profile = device.profile ? ` • profile ${device.profile}` : "";
+    const version = device.version ? ` • v${device.version}` : "";
+    deviceInspectMeta.textContent = `${deviceId || "unknown"} • ${status}${profile}${version}`;
+  }
+
+  if (deviceInspectSections) {
+    deviceInspectSections.innerHTML = "";
+  }
+
+  appendDeviceInspectSection(
+    "Identity",
+    renderInspectKeyValueGrid([
+      { key: "Display name", value: displayName || "n/a" },
+      { key: "Device ID", value: device.device_id || "n/a" },
+      { key: "Hostname", value: device.hostname || "n/a" },
+      { key: "Username", value: device.username || "n/a" },
+      { key: "Status", value: device.status || "unknown" },
+      { key: "Last seen", value: toLocalTimestamp(device.last_seen) },
+      { key: "Registered", value: toLocalTimestamp(device.created_at) },
+      { key: "Updated", value: toLocalTimestamp(device.updated_at) },
+    ]),
+  );
+
+  appendDeviceInspectSection(
+    "Security and Runtime",
+    renderInspectKeyValueGrid([
+      { key: "Quarantine", value: device.quarantine_enabled },
+      { key: "Kill switch", value: device.kill_switch_enabled },
+      { key: "Reason", value: device.quarantine_reason || "none" },
+      { key: "Realtime connected", value: realtime.connected },
+      { key: "Connected at", value: toLocalTimestamp(realtime.connected_at) },
+      { key: "Realtime last seen", value: toLocalTimestamp(realtime.last_seen_at) },
+    ]),
+  );
+
+  appendDeviceInspectSection("Capabilities", renderInspectPills(device.capabilities, "no capabilities reported"));
+
+  const aliasBlock = document.createElement("div");
+  aliasBlock.className = "device-inspect-grid";
+  if (aliases.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-message";
+    empty.textContent = "No aliases configured.";
+    aliasBlock.appendChild(empty);
+  } else {
+    for (const alias of aliases) {
+      aliasBlock.appendChild(
+        renderInspectKeyValueGrid([
+          { key: "Alias", value: alias.alias },
+          { key: "App", value: alias.app },
+          { key: "Updated", value: toLocalTimestamp(alias.updated_at) },
+        ]),
+      );
+    }
+  }
+  appendDeviceInspectSection("App Aliases", aliasBlock);
+
+  const queueBlock = document.createElement("div");
+  queueBlock.className = "device-inspect-grid";
+  if (queued.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-message";
+    empty.textContent = "No queued updates.";
+    queueBlock.appendChild(empty);
+  } else {
+    for (const item of queued.slice(0, 8)) {
+      queueBlock.appendChild(
+        renderInspectKeyValueGrid([
+          { key: "Version", value: item.version },
+          { key: "URL", value: item.package_url },
+          { key: "SHA256", value: item.sha256 },
+          { key: "Queued at", value: toLocalTimestamp(item.created_at) },
+        ]),
+      );
+    }
+  }
+  appendDeviceInspectSection("Queued Updates", queueBlock);
+
+  const logsBlock = document.createElement("div");
+  logsBlock.className = "device-inspect-grid";
+  if (logs.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-message";
+    empty.textContent = "No recent command logs.";
+    logsBlock.appendChild(empty);
+  } else {
+    for (const item of logs.slice(0, 12)) {
+      logsBlock.appendChild(
+        renderInspectKeyValueGrid([
+          { key: "Time", value: toLocalTimestamp(item.created_at) },
+          { key: "Type", value: item.parsed_type },
+          { key: "Status", value: item.status },
+          { key: "Message", value: item.result_message || item.raw_text || "n/a" },
+        ]),
+      );
+    }
+  }
+  appendDeviceInspectSection("Recent Commands", logsBlock);
+
+  appendDeviceInspectSection(
+    "Device Info Snapshot",
+    renderInspectKeyValueGrid([
+      { key: "Runtime OS", value: deviceInfo.runtime_os || deviceInfo.os_caption || "n/a" },
+      { key: "Runtime Arch", value: deviceInfo.runtime_arch || "n/a" },
+      { key: "Go version", value: deviceInfo.go_version || "n/a" },
+      { key: "CPU logical cores", value: deviceInfo.cpu_logical_cores || deviceInfo.cpu_logical_processors || "n/a" },
+      { key: "CPU model", value: deviceInfo.cpu_name || "n/a" },
+      { key: "Host model", value: deviceInfo.host_model || "n/a" },
+      { key: "Total memory bytes", value: deviceInfo.host_total_memory_bytes || "n/a" },
+      { key: "Free memory bytes", value: deviceInfo.host_free_memory_bytes || "n/a" },
+      { key: "Timezone", value: deviceInfo.timezone || "n/a" },
+      { key: "Local IPs", value: deviceInfo.local_ips || [] },
+    ]),
+  );
+
+  if (deviceInspectRaw) {
+    deviceInspectRaw.textContent = JSON.stringify(deviceInfo, null, 2);
+  }
+
+  deviceInspectPanel?.classList.remove("hidden");
+}
+
+async function inspectDevice(deviceId, options = {}) {
+  const normalizedDeviceId = normalizeActionText(deviceId);
+  if (!normalizedDeviceId) {
+    throw new Error("Device ID is required for inspection.");
+  }
+
+  inspectedDeviceId = normalizedDeviceId;
+  if (refreshDeviceInspectBtn) {
+    refreshDeviceInspectBtn.disabled = true;
+    refreshDeviceInspectBtn.textContent = "Refreshing...";
+  }
+
+  try {
+    const { data, latencyMs } = await apiRequest(
+      `/api/devices/${encodeURIComponent(normalizedDeviceId)}?logs_limit=40`,
+      null,
+      { method: "GET" },
+    );
+
+    if (!data || data.ok !== true) {
+      throw new Error((data && data.message) || "Failed to load device inspector data.");
+    }
+
+    renderDeviceInspectView(data);
+
+    if (!options.silent) {
+      setResult(`Loaded inspector for ${normalizedDeviceId}.`, {
+        requestId: normalizedDeviceId,
+        latencyMs,
+      });
+    }
+  } finally {
+    if (refreshDeviceInspectBtn) {
+      refreshDeviceInspectBtn.disabled = false;
+      refreshDeviceInspectBtn.textContent = "Refresh";
+    }
+  }
+}
+
 function renderDeviceCards(devices) {
   knownDevices = Array.isArray(devices) ? devices : [];
   devicesById = new Map(knownDevices.map((device) => [normalizeActionText(device.device_id), device]));
@@ -1094,7 +1406,28 @@ function renderDeviceCards(devices) {
       setTarget(deviceId.toLowerCase());
       setResult(`Target set to ${deviceId}.`);
     });
-    card.appendChild(useButton);
+
+    const inspectButton = document.createElement("button");
+    inspectButton.type = "button";
+    inspectButton.textContent = "Inspect";
+    inspectButton.addEventListener("click", async () => {
+      if (!deviceId) {
+        return;
+      }
+
+      try {
+        await inspectDevice(deviceId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setResult(message, { isError: true });
+      }
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.appendChild(useButton);
+    actions.appendChild(inspectButton);
+    card.appendChild(actions);
     deviceCards.appendChild(card);
 
     const li = document.createElement("li");
@@ -1419,6 +1752,16 @@ async function loadDevices(options = {}) {
   }
 
   renderDeviceCards(data.devices || []);
+  if (inspectedDeviceId) {
+    const stillExists = knownDevices.some((device) => normalizeActionText(device.device_id) === inspectedDeviceId);
+    if (!stillExists) {
+      hideDeviceInspectView();
+    } else if (options.refreshInspect !== false) {
+      inspectDevice(inspectedDeviceId, { silent: true }).catch(() => {
+        // Keep existing inspector content if refresh fails.
+      });
+    }
+  }
   if (!options.silent) {
     setResult("Devices loaded.");
   }
@@ -2200,6 +2543,7 @@ function init() {
   tokenInput.value = getToken();
   loadLastCommandSuccess();
   setConnectionStatus(getToken() ? "retrying" : "disconnected");
+  clearDeviceInspectView();
 
   const lastTarget = localStorage.getItem(TARGET_KEY);
   if (lastTarget) {
@@ -2358,6 +2702,26 @@ function init() {
       setResult(message, { isError: true });
     }
   });
+
+  if (refreshDeviceInspectBtn) {
+    refreshDeviceInspectBtn.addEventListener("click", async () => {
+      if (!inspectedDeviceId) {
+        return;
+      }
+
+      try {
+        await inspectDevice(inspectedDeviceId);
+      } catch (error) {
+        setResult(error instanceof Error ? error.message : String(error), { isError: true });
+      }
+    });
+  }
+
+  if (closeDeviceInspectBtn) {
+    closeDeviceInspectBtn.addEventListener("click", () => {
+      hideDeviceInspectView();
+    });
+  }
 
   if (renameDeviceBtn) {
     renameDeviceBtn.addEventListener("click", async () => {

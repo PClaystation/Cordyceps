@@ -1,13 +1,14 @@
 package protocol
 
 type HelloMessage struct {
-	Kind         string   `json:"kind"`
-	DeviceID     string   `json:"device_id"`
-	Token        string   `json:"token"`
-	Version      string   `json:"version"`
-	Hostname     string   `json:"hostname"`
-	Username     string   `json:"username"`
-	Capabilities []string `json:"capabilities"`
+	Kind         string         `json:"kind"`
+	DeviceID     string         `json:"device_id"`
+	Token        string         `json:"token"`
+	Version      string         `json:"version"`
+	Hostname     string         `json:"hostname"`
+	Username     string         `json:"username"`
+	Capabilities []string       `json:"capabilities"`
+	DeviceInfo   map[string]any `json:"device_info,omitempty"`
 }
 
 type HeartbeatMessage struct {

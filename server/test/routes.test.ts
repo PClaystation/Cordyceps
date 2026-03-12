@@ -1051,6 +1051,19 @@ test("device detail endpoint returns control, aliases, queue, and recent logs", 
   const { server, cleanup } = harness;
 
   try {
+    harness.db.markDeviceOnline({
+      deviceId: "m1",
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+      capabilities: ["media_control", "locking", "open_app", "notifications", "clipboard_control", "updater"],
+      deviceInfo: {
+        runtime_os: "windows",
+        runtime_arch: "amd64",
+        local_ips: ["10.0.0.5"],
+      },
+    });
+
     const aliasSave = await server.inject({
       method: "PUT",
       url: "/api/devices/m1/app-aliases",
@@ -1087,6 +1100,8 @@ test("device detail endpoint returns control, aliases, queue, and recent logs", 
     assert.equal(Array.isArray(body.queued_updates), true);
     assert.equal(Array.isArray(body.recent_logs), true);
     assert.equal(typeof body.realtime.connected, "boolean");
+    assert.equal(body.device.device_info.runtime_os, "windows");
+    assert.equal(body.realtime.device_info, null);
   } finally {
     await cleanup();
   }

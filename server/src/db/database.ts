@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { constantTimeEqual } from "../auth/auth";
-import type { DeviceRecord } from "../types/protocol";
+import type { DeviceInfoRecord, DeviceRecord } from "../types/protocol";
 import { sha256Hex } from "../utils/crypto";
 
 export interface EnrollDeviceInput {
@@ -13,6 +13,7 @@ export interface EnrollDeviceInput {
   hostname?: string;
   username?: string;
   capabilities?: string[];
+  deviceInfo?: DeviceInfoRecord;
 }
 
 export interface CommandLogInsert {
@@ -232,6 +233,7 @@ export class Database {
         hostname TEXT,
         username TEXT,
         capabilities_json TEXT,
+        device_info_json TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -355,6 +357,7 @@ export class Database {
     this.ensureColumn("update_policies", "signature", "TEXT");
     this.ensureColumn("update_policies", "signature_key_id", "TEXT");
     this.ensureColumn("update_policies", "use_privileged_helper", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("devices", "device_info_json", "TEXT");
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -373,6 +376,8 @@ export class Database {
   ): { changes: number } {
     const now = new Date().toISOString();
     const capabilitiesJson = JSON.stringify(input.capabilities ?? []);
+    const deviceInfoJson =
+      input.deviceInfo && Object.keys(input.deviceInfo).length > 0 ? JSON.stringify(input.deviceInfo) : null;
 
     return statement.run({
       device_id: input.deviceId,
@@ -383,6 +388,7 @@ export class Database {
       hostname: input.hostname ?? null,
       username: input.username ?? null,
       capabilities_json: capabilitiesJson,
+      device_info_json: deviceInfoJson,
       created_at: now,
       updated_at: now,
     });
@@ -397,6 +403,7 @@ export class Database {
     hostname: string | null;
     username: string | null;
     capabilities_json: string | null;
+    device_info_json: string | null;
     created_at: string;
     updated_at: string;
   }): DeviceRecord {
@@ -409,6 +416,7 @@ export class Database {
       hostname: row.hostname,
       username: row.username,
       capabilities: parseJsonArray(row.capabilities_json),
+      device_info: row.device_info_json ? parseJsonObject(row.device_info_json) : null,
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -426,6 +434,7 @@ export class Database {
         hostname,
         username,
         capabilities_json,
+        device_info_json,
         created_at,
         updated_at
       ) VALUES (
@@ -438,6 +447,7 @@ export class Database {
         @hostname,
         @username,
         @capabilities_json,
+        @device_info_json,
         @created_at,
         @updated_at
       )
@@ -448,6 +458,7 @@ export class Database {
         hostname = excluded.hostname,
         username = excluded.username,
         capabilities_json = excluded.capabilities_json,
+        device_info_json = excluded.device_info_json,
         updated_at = excluded.updated_at
     `);
 
@@ -466,6 +477,7 @@ export class Database {
         hostname,
         username,
         capabilities_json,
+        device_info_json,
         created_at,
         updated_at
       ) VALUES (
@@ -478,6 +490,7 @@ export class Database {
         @hostname,
         @username,
         @capabilities_json,
+        @device_info_json,
         @created_at,
         @updated_at
       )
@@ -540,7 +553,7 @@ export class Database {
   public getDevice(deviceId: string): DeviceRecord | null {
     const row = this.db
       .prepare(
-        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, created_at, updated_at FROM devices WHERE device_id = ?",
+        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, created_at, updated_at FROM devices WHERE device_id = ?",
       )
       .get(deviceId) as
       | {
@@ -552,6 +565,7 @@ export class Database {
           hostname: string | null;
           username: string | null;
           capabilities_json: string | null;
+          device_info_json: string | null;
           created_at: string;
           updated_at: string;
         }
@@ -563,7 +577,7 @@ export class Database {
   public listDevices(): DeviceRecord[] {
     const rows = this.db
       .prepare(
-        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, created_at, updated_at FROM devices ORDER BY device_id ASC",
+        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, created_at, updated_at FROM devices ORDER BY device_id ASC",
       )
       .all() as Array<{
       device_id: string;
@@ -574,6 +588,7 @@ export class Database {
       hostname: string | null;
       username: string | null;
       capabilities_json: string | null;
+      device_info_json: string | null;
       created_at: string;
       updated_at: string;
     }>;
@@ -621,6 +636,7 @@ export class Database {
               hostname,
               username,
               capabilities_json,
+              device_info_json,
               created_at,
               updated_at
             FROM devices
@@ -638,6 +654,7 @@ export class Database {
             hostname: string | null;
             username: string | null;
             capabilities_json: string | null;
+            device_info_json: string | null;
             created_at: string;
             updated_at: string;
           }
@@ -672,6 +689,7 @@ export class Database {
               hostname,
               username,
               capabilities_json,
+              device_info_json,
               created_at,
               updated_at
             ) VALUES (
@@ -684,6 +702,7 @@ export class Database {
               @hostname,
               @username,
               @capabilities_json,
+              @device_info_json,
               @created_at,
               @updated_at
             )
@@ -698,6 +717,7 @@ export class Database {
           hostname: source.hostname,
           username: source.username,
           capabilities_json: source.capabilities_json ?? "[]",
+          device_info_json: source.device_info_json,
           created_at: source.created_at,
           updated_at: now,
         });
@@ -719,11 +739,14 @@ export class Database {
     hostname?: string;
     username?: string;
     capabilities?: string[];
+    deviceInfo?: DeviceInfoRecord;
   }): void {
     const now = new Date().toISOString();
     const capabilitiesJson = Array.isArray(input.capabilities)
       ? JSON.stringify(input.capabilities)
       : null;
+    const deviceInfoJson =
+      input.deviceInfo && Object.keys(input.deviceInfo).length > 0 ? JSON.stringify(input.deviceInfo) : null;
 
     const statement = this.db.prepare(`
       UPDATE devices
@@ -733,6 +756,7 @@ export class Database {
           hostname = COALESCE(@hostname, hostname),
           username = COALESCE(@username, username),
           capabilities_json = COALESCE(@capabilities_json, capabilities_json),
+          device_info_json = COALESCE(@device_info_json, device_info_json),
           updated_at = @updated_at
       WHERE device_id = @device_id
     `);
@@ -744,6 +768,7 @@ export class Database {
       hostname: input.hostname ?? null,
       username: input.username ?? null,
       capabilities_json: capabilitiesJson,
+      device_info_json: deviceInfoJson,
       updated_at: now,
     });
   }

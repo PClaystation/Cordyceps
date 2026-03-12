@@ -1981,6 +1981,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       hostname: connected?.hostname ?? null,
       username: connected?.username ?? null,
       capabilities: connected?.capabilities ?? [],
+      device_info: connected?.deviceInfo ?? null,
       created_at: "",
       updated_at: "",
     };
@@ -2006,11 +2007,13 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
             connected: true,
             connected_at: new Date(connected.connectedAt).toISOString(),
             last_seen_at: new Date(connected.lastSeenAt).toISOString(),
+            device_info: connected.deviceInfo ?? null,
           }
         : {
             connected: false,
             connected_at: null,
             last_seen_at: null,
+            device_info: null,
           },
       aliases,
       queued_updates: queuedUpdates,

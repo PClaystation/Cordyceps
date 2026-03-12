@@ -122,6 +122,10 @@ export interface AgentResultMessage {
   version?: string;
 }
 
+export interface DeviceInfoRecord {
+  [key: string]: unknown;
+}
+
 export interface AgentHelloMessage {
   kind: "hello";
   device_id: string;
@@ -130,6 +134,7 @@ export interface AgentHelloMessage {
   hostname: string;
   username: string;
   capabilities: string[];
+  device_info?: DeviceInfoRecord;
 }
 
 export interface AgentHeartbeatMessage {
@@ -159,6 +164,7 @@ export interface DeviceRecord {
   hostname: string | null;
   username: string | null;
   capabilities: string[];
+  device_info?: DeviceInfoRecord | null;
   profile?: AgentProfile;
   created_at: string;
   updated_at: string;
