@@ -8,6 +8,21 @@ Phone-driven mycelium command platform:
 - Windows node agents receive typed command envelopes over outbound WSS
 - Node agents execute allowlisted actions only
 
+## Start Here (Simplest Path)
+
+If you want the fastest operator workflow, use the shortcuts below from repo root:
+
+1. Start server:
+   - macOS/Linux: `./start-server.sh`
+   - PowerShell: `.\start-server.ps1`
+2. Show live server config/tokens:
+   - macOS/Linux: `./show-server-config.sh`
+   - PowerShell: `.\show-server-config.ps1`
+3. Build/install/manage Windows agents with one wrapper:
+   - `.\ops\cordyceps.ps1 -Action help`
+
+Simple copy/paste operation guide: [docs/easy-operations.md](docs/easy-operations.md)
+
 ## Current Colony Capabilities
 
 - `POST /api/command` with deterministic parser and auth
@@ -158,7 +173,19 @@ Notes:
   - `UPDATE_REQUIRE_SIGNATURE` + `UPDATE_SIGNING_KEYS` (phase 2 signed-package hardening)
   - `ALLOW_AUTOMATIC_UPDATES` (default `false`; keeps update policy queueing/manual updates under operator control)
   - `CORS_ALLOWED_ORIGINS` (comma-separated explicit origins; defaults already include `https://pclaystation.github.io` and `https://mpmc.ddns.net`)
-5. Install and run:
+5. Install and run (from repo root):
+
+```bash
+./start-server.sh
+```
+
+PowerShell:
+
+```powershell
+.\start-server.ps1
+```
+
+Classic path (same behavior):
 
 ```bash
 cd server
@@ -187,9 +214,10 @@ It also logs:
 Show current effective config anytime:
 
 ```bash
-cd server
-npm run show-config
+./show-server-config.sh
 ```
+
+PowerShell equivalent: `.\show-server-config.ps1`
 
 Production:
 
@@ -197,6 +225,32 @@ Production:
 - expose HTTPS for `/api/*` and WSS for `/ws/agent`
 
 ## Node Setup (Windows)
+
+### One wrapper for all strains (recommended)
+
+Use this wrapper from repo root so you do not need to remember per-folder script names:
+
+```powershell
+.\ops\cordyceps.ps1 -Action help
+```
+
+Common usage:
+
+```powershell
+# Build USB agent (t/e/s/se/a)
+.\ops\cordyceps.ps1 -Action build-usb -Strain t -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN"
+
+# Install/start on target Windows host
+.\ops\cordyceps.ps1 -Action install -Strain t -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN"
+
+# Check status
+.\ops\cordyceps.ps1 -Action status -Strain t
+
+# Uninstall
+.\ops\cordyceps.ps1 -Action uninstall -Strain t
+```
+
+If `server/data/secrets.json` exists, `-BootstrapToken` is optional for `build-usb` and `install`.
 
 ### Fastest way to colonize another device (T1 agent)
 
