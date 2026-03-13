@@ -52,6 +52,17 @@ Use one command wrapper from repo root:
 
 Output will be in that strain folder under `dist/`.
 If you already started the server once, `-BootstrapToken` can be omitted and auto-loaded from `server/data/secrets.json`.
+For the legacy `agent` strain you can also bake install behavior into the EXE:
+
+```powershell
+.\ops\cordyceps.ps1 -Action build-usb -Strain agent -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN" -Background -Startup
+```
+
+That embeds:
+- server URL
+- bootstrap token
+- whether first launch should detach into the background
+- whether startup persistence should be registered
 
 ## 5) Install/start an agent on a Windows host
 
@@ -69,6 +80,7 @@ Optional extras:
 - Set fixed ID: `-DeviceId "t5"`
 - Set display name: `-DisplayName "Office PC"`
 - Keep visible logs: `-Foreground`
+- For `agent` builds with embedded server/token, `-ServerUrl` and `-BootstrapToken` can be omitted at install time
 
 ## 6) Daily operations on a Windows host
 

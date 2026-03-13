@@ -7,7 +7,11 @@ param(
 
   [string]$OutputPath = ".\dist\se1-agent-usb.exe",
 
-  [string]$Version = "0.1.0"
+  [string]$Version = "0.1.0",
+
+  [switch]$Background,
+
+  [switch]$Startup
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,11 +22,16 @@ $outputDir = Split-Path -Parent $outputFullPath
 
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 
+$backgroundValue = if ($Background.IsPresent) { "true" } else { "false" }
+$startupValue = if ($Startup.IsPresent) { "true" } else { "false" }
+
 $ldflags = @(
   "-H=windowsgui",
   "-X", "main.defaultVersion=$Version",
   "-X", "main.defaultServerURL=$ServerUrl",
-  "-X", "main.defaultBootstrapToken=$BootstrapToken"
+  "-X", "main.defaultBootstrapToken=$BootstrapToken",
+  "-X", "main.defaultBackgroundMode=$backgroundValue",
+  "-X", "main.defaultStartupMode=$startupValue"
 )
 
 $buildArgs = @(
@@ -43,6 +52,7 @@ $env:CGO_ENABLED = "0"
 try {
   & go @buildArgs
   Write-Host "Built USB-ready agent: $outputFullPath"
+  Write-Host "Embedded setup: background=$backgroundValue startup=$startupValue"
   Write-Host "Usage on target PC: double-click the EXE once."
 }
 finally {

@@ -89,6 +89,27 @@ var openAppTargets = map[string]string{
 	"snippingtool": "snippingtool",
 }
 
+var mediaVirtualKeyCodes = map[string]uint16{
+	"VOLUME_MUTE":      0xAD,
+	"VOLUME_DOWN":      0xAE,
+	"VOLUME_UP":        0xAF,
+	"MEDIA_NEXT_TRACK": 0xB0,
+	"MEDIA_PREV_TRACK": 0xB1,
+	"MEDIA_PLAY_PAUSE": 0xB3,
+	"F1":               0x70,
+	"F2":               0x71,
+	"F3":               0x72,
+	"F4":               0x73,
+	"F5":               0x74,
+	"F6":               0x75,
+	"F7":               0x76,
+	"F8":               0x77,
+	"F9":               0x78,
+	"F10":              0x79,
+	"F11":              0x7A,
+	"F12":              0x7B,
+}
+
 func Capabilities() []string {
 	return []string{
 		"profile_se",
@@ -478,10 +499,12 @@ func sendMediaKey(key string) error {
 		return errors.New("media keys are supported only on Windows")
 	}
 
-	script := fmt.Sprintf("(New-Object -ComObject WScript.Shell).SendKeys('{%s}')", key)
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script)
+	virtualKey, ok := mediaVirtualKeyCodes[strings.ToUpper(strings.TrimSpace(key))]
+	if !ok {
+		return fmt.Errorf("unsupported media key: %s", key)
+	}
 
-	if err := runWithTimeout(cmd, commandTimeout); err != nil {
+	if err := sendVirtualKey(virtualKey); err != nil {
 		return fmt.Errorf("send key %s: %w", key, err)
 	}
 
@@ -493,8 +516,7 @@ func lockPC() error {
 		return errors.New("LOCK_PC is supported only on Windows")
 	}
 
-	cmd := exec.Command("rundll32.exe", "user32.dll,LockWorkStation")
-	if err := runWithTimeout(cmd, commandTimeout); err != nil {
+	if err := lockWorkStationNative(); err != nil {
 		return fmt.Errorf("lock workstation: %w", err)
 	}
 
@@ -530,11 +552,7 @@ func setClipboard(text string) error {
 		return fmt.Errorf("clipboard text too long (max %d)", maxClipboardTextLength)
 	}
 
-	escaped := strings.ReplaceAll(text, "'", "''")
-	script := fmt.Sprintf("Set-Clipboard -Value '%s'", escaped)
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script)
-
-	if err := runWithTimeout(cmd, commandTimeout); err != nil {
+	if err := setClipboardText(text); err != nil {
 		return fmt.Errorf("set clipboard: %w", err)
 	}
 
@@ -546,10 +564,7 @@ func displayOff() error {
 		return errors.New("SYSTEM_DISPLAY_OFF is supported only on Windows")
 	}
 
-	script := "$signature = '[DllImport(\"user32.dll\")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);'; Add-Type -MemberDefinition $signature -Name NativeMethods -Namespace Jarvis | Out-Null; [void][Jarvis.NativeMethods]::SendMessage([IntPtr]0xffff, 0x0112, [IntPtr]0xF170, [IntPtr]2)"
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script)
-
-	if err := runWithTimeout(cmd, commandTimeout); err != nil {
+	if err := turnDisplayOffNative(); err != nil {
 		return fmt.Errorf("turn display off: %w", err)
 	}
 

@@ -34,6 +34,8 @@ var (
 	defaultVersion        = "0.1.0"
 	defaultServerURL      = ""
 	defaultBootstrapToken = ""
+	defaultBackgroundMode = "true"
+	defaultStartupMode    = "true"
 )
 
 var (
@@ -74,6 +76,8 @@ func main() {
 		bootstrapTokenFlag string
 		versionFlag        string
 		configPathFlag     string
+		backgroundFlag     bool
+		startupFlag        bool
 		enrollOnlyFlag     bool
 		foregroundFlag     bool
 		runAgentFlag       bool
@@ -86,6 +90,8 @@ func main() {
 	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", resolveStringSetting("JARVIS_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")
 	flag.StringVar(&versionFlag, "version", defaultVersion, "Agent version string")
 	flag.StringVar(&configPathFlag, "config", "", "Path to agent config file")
+	flag.BoolVar(&backgroundFlag, "background", resolveBoolSetting("JARVIS_BACKGROUND_MODE", defaultBackgroundMode), "Run detached in the background on Windows")
+	flag.BoolVar(&startupFlag, "startup", resolveBoolSetting("JARVIS_INSTALL_STARTUP", defaultStartupMode), "Register the agent to start automatically on Windows")
 	flag.BoolVar(&enrollOnlyFlag, "enroll-only", false, "Enroll and exit")
 	flag.BoolVar(&foregroundFlag, "foreground", false, "Run in the current console instead of background mode (Windows)")
 	flag.BoolVar(&runAgentFlag, "run-agent", false, "Internal flag used for detached relaunch")
@@ -125,7 +131,7 @@ func main() {
 			return
 		}
 
-		if shouldRelaunchDetached(foregroundFlag, runAgentFlag, enrollOnlyFlag) {
+		if shouldRelaunchDetached(backgroundFlag, foregroundFlag, runAgentFlag, enrollOnlyFlag) {
 			args := relaunchArgs(os.Args[1:])
 			if err := background.RelaunchDetached(executablePath, args); err != nil {
 				log.Printf("warning: detached relaunch failed; continuing in foreground: %v", err)
@@ -159,7 +165,7 @@ func main() {
 	}()
 
 	if enrollOnlyFlag {
-		if _, err := initializeAgent(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), versionFlag, versionFlagExplicit, executablePath, execPathErr == nil); err != nil {
+		if _, err := initializeAgent(cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), versionFlag, versionFlagExplicit, executablePath, execPathErr == nil && startupFlag); err != nil {
 			log.Fatalf("initialize agent: %v", err)
 		}
 		return
@@ -168,11 +174,11 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	if execPathErr == nil {
+	if execPathErr == nil && startupFlag {
 		go maintainStartupRegistration(ctx, executablePath)
 	}
 
-	superviseAgent(ctx, cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), versionFlag, versionFlagExplicit, executablePath, execPathErr == nil)
+	superviseAgent(ctx, cfgPath, strings.TrimSpace(serverURLFlag), strings.TrimSpace(deviceIDFlag), strings.TrimSpace(displayNameFlag), strings.TrimSpace(bootstrapTokenFlag), versionFlag, versionFlagExplicit, executablePath, execPathErr == nil && startupFlag)
 }
 
 func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, displayNameInput string, bootstrapToken string, version string) (*config.Config, error) {
@@ -715,12 +721,29 @@ func resolveStringSetting(envKey string, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
-func shouldRelaunchDetached(foreground bool, runAgent bool, enrollOnly bool) bool {
+func resolveBoolSetting(envKey string, fallback string) bool {
+	if isTruthySetting(os.Getenv(envKey)) {
+		return true
+	}
+
+	return isTruthySetting(fallback)
+}
+
+func isTruthySetting(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldRelaunchDetached(backgroundMode bool, foreground bool, runAgent bool, enrollOnly bool) bool {
 	if runtime.GOOS != "windows" {
 		return false
 	}
 
-	return !foreground && !runAgent && !enrollOnly
+	return backgroundMode && !foreground && !runAgent && !enrollOnly
 }
 
 func installAndRelaunchIfNeeded(executablePath string, args []string, foreground bool, runAgent bool, enrollOnly bool) (bool, error) {

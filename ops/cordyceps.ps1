@@ -18,6 +18,10 @@ param(
 
   [string]$Version = "",
 
+  [switch]$Background,
+
+  [switch]$Startup,
+
   [switch]$Foreground
 )
 
@@ -171,7 +175,7 @@ function Show-Help {
   Write-Host ""
   Write-Host "Examples:"
   Write-Host "  .\\ops\\cordyceps.ps1 -Action start-server"
-  Write-Host "  .\\ops\\cordyceps.ps1 -Action build-usb -Strain t -ServerUrl https://example.com -BootstrapToken TOKEN"
+  Write-Host "  .\\ops\\cordyceps.ps1 -Action build-usb -Strain t -ServerUrl https://example.com -BootstrapToken TOKEN -Background -Startup"
   Write-Host "  .\\ops\\cordyceps.ps1 -Action install -Strain t -ServerUrl https://example.com -BootstrapToken TOKEN"
   Write-Host "  .\\ops\\cordyceps.ps1 -Action status -Strain t"
   Write-Host "  .\\ops\\cordyceps.ps1 -Action uninstall -Strain t"
@@ -232,6 +236,14 @@ switch ($Action) {
 
     if (-not [string]::IsNullOrWhiteSpace($Version)) {
       $buildArgs += @("-Version", $Version)
+    }
+
+    if ($Background.IsPresent) {
+      $buildArgs += "-Background"
+    }
+
+    if ($Startup.IsPresent) {
+      $buildArgs += "-Startup"
     }
 
     Invoke-RepoScript "$($strainConfig.Dir)/$($strainConfig.BuildScript)" $buildArgs

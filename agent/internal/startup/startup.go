@@ -2,9 +2,7 @@ package startup
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -14,7 +12,6 @@ const (
 	currentBootTaskName     = "CordycepsAgentBoot"
 	currentWatchdogTaskName = "CordycepsAgentWatchdog"
 	currentRunKey           = "CordycepsAgent"
-	launcherScriptName      = "cordyceps-agent-launcher.vbs"
 )
 
 func EnsureStartupRegistration(executablePath string) error {
@@ -26,10 +23,7 @@ func EnsureStartupRegistration(executablePath string) error {
 		return fmt.Errorf("empty executable path")
 	}
 
-	taskCommand, err := ensureHiddenLauncher(executablePath)
-	if err != nil {
-		return fmt.Errorf("prepare startup launcher: %w", err)
-	}
+	taskCommand := startupCommand(executablePath)
 	registered := false
 	registrationErrors := make([]string, 0, 4)
 
@@ -84,10 +78,6 @@ func ensureScheduledTask(taskName string, taskCommand string, scheduleArgs []str
 }
 
 func ensureRunKey(executablePath string) error {
-	runValue, err := ensureHiddenLauncher(executablePath)
-	if err != nil {
-		return err
-	}
 	cmd := exec.Command(
 		"reg",
 		"add",
@@ -97,7 +87,7 @@ func ensureRunKey(executablePath string) error {
 		"/t",
 		"REG_SZ",
 		"/d",
-		runValue,
+		startupCommand(executablePath),
 		"/f",
 	)
 	configureHiddenProcess(cmd)
@@ -114,22 +104,6 @@ func ensureRunKey(executablePath string) error {
 	return nil
 }
 
-func ensureHiddenLauncher(executablePath string) (string, error) {
-	scriptPath := filepath.Join(filepath.Dir(executablePath), launcherScriptName)
-	script := fmt.Sprintf(
-		"Set shell = CreateObject(%s)\r\nshell.CurrentDirectory = %s\r\nshell.Run %s, 0, False\r\n",
-		vbsStringLiteral("WScript.Shell"),
-		vbsStringLiteral(filepath.Dir(executablePath)),
-		vbsStringLiteral(fmt.Sprintf("\"%s\" --run-agent", executablePath)),
-	)
-
-	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf(`wscript.exe //B //NoLogo "%s"`, scriptPath), nil
-}
-
-func vbsStringLiteral(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+func startupCommand(executablePath string) string {
+	return fmt.Sprintf(`"%s" --run-agent --startup`, executablePath)
 }
