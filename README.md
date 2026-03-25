@@ -79,6 +79,8 @@ Simple copy/paste operation guide: [docs/easy-operations.md](docs/easy-operation
 - `server/` Node.js + TypeScript dispatcher
 - `agent/` Go Windows node agent (single binary)
 - `s1/` Go Windows lite strain family (`s*` IDs; basic control only, no emergency lockdown)
+- `d1/` Go Windows updater-only resident strain family (`d*` IDs; installs/persists and only accepts updates)
+- `ds1/` Go Windows ping-only resident strain family (`ds*` IDs; installs/persists and only answers `PING`)
 - `se1/` Go Windows lite+emergency strain family (`se*` IDs; `s` surface + emergency lockdown)
 - `t1/` Go Windows standard remote-control strain family (`t*` IDs; regular full remote control)
 - `e1/` Go Windows secure+emergency strain family (`e*` IDs; `t` + emergency lockdown + stricter local allowlist security)
@@ -91,6 +93,8 @@ Simple copy/paste operation guide: [docs/easy-operations.md](docs/easy-operation
 Canonical strain intent:
 
 - `s`: super-basic lite profile; no emergency lockdown.
+- `d`: updater-only resident profile; no runnable command surface.
+- `ds`: resident profile with no updater and only `PING`.
 - `se`: `s` + emergency lockdown security.
 - `t`: regular remote control profile.
 - `e`: `t` + emergency lockdown + stricter security behavior.
@@ -155,7 +159,7 @@ Notes:
 - emergency command requires explicit confirmation (`panic confirm`, `lockdown confirm`, or `emergency confirm`)
 - agent removal requires explicit remote confirmation (`remove agent confirm confirm`); no local host interaction is required on the target PC
 - admin commands must use `admin ...` and are dispatched only to devices that advertise `admin_ops` capability (A1 family)
-- server enforces profile routing policy (`s`, `se`, `t`, `e`, `a`) using capability markers (`profile_s`, `profile_se`, `profile_t`, `profile_e`, `profile_a`) with device-ID prefix fallback
+- server enforces profile routing policy (`d`, `ds`, `s`, `se`, `t`, `e`, `a`) using capability markers (`profile_d`, `profile_ds`, `profile_s`, `profile_se`, `profile_t`, `profile_e`, `profile_a`) with device-ID prefix fallback
 
 ## Mycelium Core Setup
 

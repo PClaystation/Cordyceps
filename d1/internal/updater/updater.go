@@ -1,0 +1,889 @@
+package updater
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
+)
+
+const (
+	maxPackageBytes int64 = 314572800
+	maxVersionLen         = 64
+)
+
+var (
+	updateMu         sync.Mutex
+	updateInProgress bool
+)
+
+type Result struct {
+	Message         string
+	RestartRequired bool
+}
+
+type updateRequest struct {
+	Version             string
+	URL                 string
+	SHA256              string
+	SizeBytes           int64
+	NextDeviceID        string
+	UsePrivilegedHelper bool
+}
+
+type persistedConfig struct {
+	DeviceID         string `json:"device_id"`
+	DeviceToken      string `json:"device_token"`
+	ServerBaseURL    string `json:"server_base_url"`
+	WSURL            string `json:"ws_url"`
+	HeartbeatSeconds int    `json:"heartbeat_seconds"`
+	Version          string `json:"version"`
+}
+
+func Apply(args map[string]any, executablePath string, cfgPath string, paths resilience.Paths, slotName string) (Result, error) {
+	if runtime.GOOS != "windows" {
+		return Result{}, errors.New("AGENT_UPDATE is supported only on Windows")
+	}
+
+	if strings.TrimSpace(executablePath) == "" {
+		return Result{}, errors.New("failed to resolve current executable path")
+	}
+
+	if strings.TrimSpace(cfgPath) == "" {
+		return Result{}, errors.New("missing config path")
+	}
+
+	request, err := parseRequest(args)
+	if err != nil {
+		return Result{}, err
+	}
+
+	if err := beginUpdate(); err != nil {
+		return Result{}, err
+	}
+
+	restartRequired := false
+	defer func() {
+		if !restartRequired {
+			endUpdate()
+		}
+	}()
+
+	currentHash, err := fileSHA256(executablePath)
+	if err == nil && currentHash == request.SHA256 {
+		return Result{
+			Message:         fmt.Sprintf("Agent binary already matches update %s", request.Version),
+			RestartRequired: false,
+		}, nil
+	}
+
+	stagePath, err := stagePackage(request)
+	if err != nil {
+		return Result{}, err
+	}
+
+	if shouldInstallSiblingAgent(request.NextDeviceID) {
+		launchConfigPath, err := prepareMigratedConfig(cfgPath, request.NextDeviceID, request.Version)
+		if err != nil {
+			_ = os.Remove(stagePath)
+			return Result{}, fmt.Errorf("prepare migrated config: %w", err)
+		}
+
+		targetPath, err := installedExePathForDeviceID(request.NextDeviceID)
+		if err != nil {
+			_ = os.Remove(stagePath)
+			return Result{}, fmt.Errorf("resolve sibling install path: %w", err)
+		}
+
+		scriptPath, err := writeSiblingInstallScript(targetPath, stagePath, launchConfigPath, request.Version)
+		if err != nil {
+			_ = os.Remove(stagePath)
+			return Result{}, fmt.Errorf("create sibling installer helper: %w", err)
+		}
+
+		if err := launchUpdaterScript(scriptPath, request.UsePrivilegedHelper); err != nil {
+			_ = os.Remove(stagePath)
+			_ = os.Remove(scriptPath)
+			return Result{}, fmt.Errorf("launch sibling installer helper: %w", err)
+		}
+
+		return Result{
+			Message:         fmt.Sprintf("Update %s staged. %s installed alongside d1.", request.Version, request.NextDeviceID),
+			RestartRequired: false,
+		}, nil
+	}
+
+	if err := persistManagedConfig(cfgPath, request.NextDeviceID, request.Version); err != nil {
+		_ = os.Remove(stagePath)
+		return Result{}, fmt.Errorf("prepare rollout config: %w", err)
+	}
+
+	activeSlot := resilience.NormalizeSlot(slotName)
+	if activeSlot == "" {
+		activeSlot = resilience.InferSlotFromExecutable(executablePath, paths)
+	}
+	targetSlot := resilience.OtherSlot(activeSlot)
+	targetPath := resilience.SlotExecutablePath(paths, targetSlot)
+
+	if err := stageIntoManagedSlot(stagePath, targetPath); err != nil {
+		_ = os.Remove(stagePath)
+		return Result{}, fmt.Errorf("stage inactive slot: %w", err)
+	}
+
+	if err := resilience.SaveRolloutRequest(paths, &resilience.RolloutRequest{
+		TargetSlot:    targetSlot,
+		PreviousSlot:  activeSlot,
+		TargetVersion: request.Version,
+		RequestedAt:   time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		return Result{}, fmt.Errorf("write rollout request: %w", err)
+	}
+
+	restartRequired = true
+	message := fmt.Sprintf("Update %s staged in slot %s. Guardian is promoting it now.", request.Version, targetSlot)
+	if strings.TrimSpace(request.NextDeviceID) != "" {
+		message = fmt.Sprintf(
+			"Update %s staged in slot %s. Guardian is promoting it now as %s.",
+			request.Version,
+			targetSlot,
+			request.NextDeviceID,
+		)
+	}
+	return Result{
+		Message:         message,
+		RestartRequired: true,
+	}, nil
+}
+
+func parseRequest(args map[string]any) (updateRequest, error) {
+	version, err := readStringArg(args, "version")
+	if err != nil {
+		return updateRequest{}, err
+	}
+
+	if len(version) > maxVersionLen || !isSafeVersion(version) {
+		return updateRequest{}, errors.New("version must match [A-Za-z0-9._-] and be at most 64 chars")
+	}
+
+	downloadURL, err := readStringArg(args, "url")
+	if err != nil {
+		return updateRequest{}, err
+	}
+
+	parsedURL, err := url.Parse(downloadURL)
+	if err != nil || !parsedURL.IsAbs() {
+		return updateRequest{}, errors.New("url must be a valid absolute URL")
+	}
+	if parsedURL.Scheme != "https" {
+		return updateRequest{}, errors.New("url must use https")
+	}
+	if parsedURL.Host == "" {
+		return updateRequest{}, errors.New("url must include a host")
+	}
+	if parsedURL.User != nil {
+		return updateRequest{}, errors.New("url must not include credentials")
+	}
+
+	shaValue, err := readStringArg(args, "sha256")
+	if err != nil {
+		return updateRequest{}, err
+	}
+	shaValue = strings.ToLower(strings.TrimSpace(shaValue))
+	if !isSHA256(shaValue) {
+		return updateRequest{}, errors.New("sha256 must be a 64-character hex string")
+	}
+
+	sizeBytes, err := readOptionalSizeArg(args, "size_bytes")
+	if err != nil {
+		return updateRequest{}, err
+	}
+
+	nextDeviceID, err := readOptionalStringArg(args, "next_device_id")
+	if err != nil {
+		return updateRequest{}, err
+	}
+
+	usePrivilegedHelper, err := readOptionalBoolArg(args, "use_privileged_helper")
+	if err != nil {
+		return updateRequest{}, err
+	}
+
+	return updateRequest{
+		Version:             version,
+		URL:                 parsedURL.String(),
+		SHA256:              shaValue,
+		SizeBytes:           sizeBytes,
+		NextDeviceID:        nextDeviceID,
+		UsePrivilegedHelper: usePrivilegedHelper,
+	}, nil
+}
+
+func stagePackage(request updateRequest) (string, error) {
+	dir := os.TempDir()
+	stagePath := filepath.Join(dir, fmt.Sprintf("d1-agent-update-%d.exe", time.Now().UTC().UnixNano()))
+	partialPath := stagePath + ".part"
+
+	_ = os.Remove(stagePath)
+	_ = os.Remove(partialPath)
+
+	if err := downloadAndVerify(request, partialPath); err != nil {
+		_ = os.Remove(partialPath)
+		return "", err
+	}
+
+	if err := os.Rename(partialPath, stagePath); err != nil {
+		_ = os.Remove(partialPath)
+		return "", fmt.Errorf("move staged package: %w", err)
+	}
+
+	return stagePath, nil
+}
+
+func downloadAndVerify(request updateRequest, outputPath string) error {
+	client := &http.Client{
+		Timeout: 15 * time.Minute,
+	}
+
+	req, err := http.NewRequest(http.MethodGet, request.URL, nil)
+	if err != nil {
+		return fmt.Errorf("build update download request: %w", err)
+	}
+	req.Header.Set("Accept", "application/octet-stream")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("download update package: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("update package responded with HTTP %d", resp.StatusCode)
+	}
+
+	if resp.Request == nil || resp.Request.URL == nil {
+		return errors.New("download response did not include a final URL")
+	}
+
+	finalURL := resp.Request.URL
+	if finalURL.Scheme != "https" {
+		return fmt.Errorf("update package redirected to non-https URL: %s", finalURL.String())
+	}
+	if finalURL.Host == "" {
+		return errors.New("update package final URL is missing host")
+	}
+	if finalURL.User != nil {
+		return errors.New("update package URL must not include credentials")
+	}
+
+	if resp.ContentLength > maxPackageBytes {
+		return fmt.Errorf("package too large (%d bytes, max %d)", resp.ContentLength, maxPackageBytes)
+	}
+
+	file, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("create staged package file: %w", err)
+	}
+
+	hasher := sha256.New()
+	limited := &io.LimitedReader{
+		R: resp.Body,
+		N: maxPackageBytes + 1,
+	}
+
+	written, copyErr := io.Copy(io.MultiWriter(file, hasher), limited)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+
+	if copyErr != nil {
+		return fmt.Errorf("copy package payload: %w", copyErr)
+	}
+	if syncErr != nil {
+		return fmt.Errorf("flush staged package: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close staged package: %w", closeErr)
+	}
+
+	if written <= 0 {
+		return errors.New("downloaded package was empty")
+	}
+
+	if written > maxPackageBytes {
+		return fmt.Errorf("package too large (%d bytes, max %d)", written, maxPackageBytes)
+	}
+
+	if request.SizeBytes > 0 && written != request.SizeBytes {
+		return fmt.Errorf("package size mismatch: expected %d bytes, got %d", request.SizeBytes, written)
+	}
+
+	actualHash := hex.EncodeToString(hasher.Sum(nil))
+	if actualHash != request.SHA256 {
+		return fmt.Errorf("sha256 mismatch: expected %s got %s", request.SHA256, actualHash)
+	}
+
+	if err := verifyWindowsExecutable(outputPath); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func verifyWindowsExecutable(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open staged package for verification: %w", err)
+	}
+	defer file.Close()
+
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(file, header); err != nil {
+		return fmt.Errorf("read executable header: %w", err)
+	}
+
+	if header[0] != 'M' || header[1] != 'Z' {
+		return errors.New("staged package is not a Windows executable (missing MZ header)")
+	}
+
+	return nil
+}
+
+func writeUpdaterScript(targetPath string, stagedPath string, cfgPath string, launchConfigPath string, version string) (string, error) {
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("d1-agent-updater-%d.cmd", time.Now().UTC().UnixNano()))
+
+	escape := func(value string) string {
+		sanitized := strings.ReplaceAll(value, "%", "%%")
+		sanitized = strings.ReplaceAll(sanitized, "\r", "")
+		sanitized = strings.ReplaceAll(sanitized, "\n", "")
+		return sanitized
+	}
+
+	body := strings.Join([]string{
+		"@echo off",
+		"setlocal enableextensions",
+		fmt.Sprintf("set \"TARGET=%s\"", escape(targetPath)),
+		fmt.Sprintf("set \"TARGET_DIR=%s\"", escape(filepath.Dir(targetPath))),
+		fmt.Sprintf("set \"STAGED=%s\"", escape(stagedPath)),
+		fmt.Sprintf("set \"CONFIG=%s\"", escape(cfgPath)),
+		fmt.Sprintf("set \"LAUNCH_CONFIG=%s\"", escape(launchConfigPath)),
+		fmt.Sprintf("set \"VERSION=%s\"", escape(version)),
+		"set \"BACKUP=%TARGET%.bak\"",
+		"if exist \"%BACKUP%\" del /f /q \"%BACKUP%\" >nul 2>&1",
+		"for /L %%I in (1,1,45) do (",
+		"  move /Y \"%TARGET%\" \"%BACKUP%\" >nul 2>&1",
+		"  if not errorlevel 1 goto swapped",
+		"  timeout /t 1 /nobreak >nul",
+		")",
+		"start \"\" /D \"%TARGET_DIR%\" /B \"%TARGET%\" --config \"%CONFIG%\"",
+		"del /f /q \"%STAGED%\" >nul 2>&1",
+		"del /f /q \"%~f0\" >nul 2>&1",
+		"exit /b 1",
+		":swapped",
+		"move /Y \"%STAGED%\" \"%TARGET%\" >nul 2>&1",
+		"if errorlevel 1 goto rollback",
+		"start \"\" /D \"%TARGET_DIR%\" /B \"%TARGET%\" --config \"%LAUNCH_CONFIG%\" --version \"%VERSION%\"",
+		"if errorlevel 1 goto rollback",
+		"del /f /q \"%BACKUP%\" >nul 2>&1",
+		"del /f /q \"%~f0\" >nul 2>&1",
+		"exit /b 0",
+		":rollback",
+		"move /Y \"%BACKUP%\" \"%TARGET%\" >nul 2>&1",
+		"start \"\" /D \"%TARGET_DIR%\" /B \"%TARGET%\" --config \"%CONFIG%\"",
+		"del /f /q \"%STAGED%\" >nul 2>&1",
+		"del /f /q \"%~f0\" >nul 2>&1",
+		"exit /b 1",
+		"",
+	}, "\r\n")
+
+	if err := os.WriteFile(scriptPath, []byte(body), 0o600); err != nil {
+		return "", err
+	}
+
+	return scriptPath, nil
+}
+
+func writeSiblingInstallScript(targetPath string, stagedPath string, launchConfigPath string, version string) (string, error) {
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("d1-agent-sidecar-%d.cmd", time.Now().UTC().UnixNano()))
+
+	escape := func(value string) string {
+		sanitized := strings.ReplaceAll(value, "%", "%%")
+		sanitized = strings.ReplaceAll(sanitized, "\r", "")
+		sanitized = strings.ReplaceAll(sanitized, "\n", "")
+		return sanitized
+	}
+
+	body := strings.Join([]string{
+		"@echo off",
+		"setlocal enableextensions",
+		fmt.Sprintf("set \"TARGET=%s\"", escape(targetPath)),
+		fmt.Sprintf("set \"TARGET_DIR=%s\"", escape(filepath.Dir(targetPath))),
+		fmt.Sprintf("set \"STAGED=%s\"", escape(stagedPath)),
+		fmt.Sprintf("set \"LAUNCH_CONFIG=%s\"", escape(launchConfigPath)),
+		fmt.Sprintf("set \"VERSION=%s\"", escape(version)),
+		"if not exist \"%TARGET_DIR%\" mkdir \"%TARGET_DIR%\" >nul 2>&1",
+		"if exist \"%TARGET%\" del /f /q \"%TARGET%\" >nul 2>&1",
+		"move /Y \"%STAGED%\" \"%TARGET%\" >nul 2>&1",
+		"if errorlevel 1 goto fail",
+		"start \"\" /D \"%TARGET_DIR%\" /B \"%TARGET%\" --config \"%LAUNCH_CONFIG%\" --version \"%VERSION%\"",
+		"del /f /q \"%~f0\" >nul 2>&1",
+		"exit /b 0",
+		":fail",
+		"del /f /q \"%STAGED%\" >nul 2>&1",
+		"del /f /q \"%~f0\" >nul 2>&1",
+		"exit /b 1",
+		"",
+	}, "\r\n")
+
+	if err := os.WriteFile(scriptPath, []byte(body), 0o600); err != nil {
+		return "", err
+	}
+
+	return scriptPath, nil
+}
+
+func prepareMigratedConfig(currentConfigPath string, nextDeviceID string, version string) (string, error) {
+	configPath, err := configPathForDeviceID(nextDeviceID)
+	if err != nil {
+		return "", err
+	}
+
+	payload, err := os.ReadFile(currentConfigPath)
+	if err != nil {
+		return "", fmt.Errorf("read current config: %w", err)
+	}
+
+	var cfg persistedConfig
+	if err := json.Unmarshal(payload, &cfg); err != nil {
+		return "", fmt.Errorf("parse current config: %w", err)
+	}
+
+	cfg.DeviceID = strings.TrimSpace(nextDeviceID)
+	if strings.TrimSpace(version) != "" {
+		cfg.Version = strings.TrimSpace(version)
+	}
+	if cfg.HeartbeatSeconds <= 0 {
+		cfg.HeartbeatSeconds = 60
+	}
+
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		return "", fmt.Errorf("create config dir: %w", err)
+	}
+
+	serialized, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("serialize migrated config: %w", err)
+	}
+
+	tempPath := configPath + ".tmp"
+	if err := os.WriteFile(tempPath, serialized, 0o600); err != nil {
+		return "", fmt.Errorf("write migrated config: %w", err)
+	}
+
+	if err := os.Rename(tempPath, configPath); err != nil {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("activate migrated config: %w", err)
+	}
+
+	return configPath, nil
+}
+
+func persistManagedConfig(currentConfigPath string, nextDeviceID string, version string) error {
+	payload, err := os.ReadFile(currentConfigPath)
+	if err != nil {
+		return fmt.Errorf("read current config: %w", err)
+	}
+
+	var cfg persistedConfig
+	if err := json.Unmarshal(payload, &cfg); err != nil {
+		return fmt.Errorf("parse current config: %w", err)
+	}
+
+	if strings.TrimSpace(nextDeviceID) != "" {
+		cfg.DeviceID = strings.TrimSpace(nextDeviceID)
+	}
+	if strings.TrimSpace(version) != "" {
+		cfg.Version = strings.TrimSpace(version)
+	}
+	if cfg.HeartbeatSeconds <= 0 {
+		cfg.HeartbeatSeconds = 60
+	}
+
+	serialized, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("serialize rollout config: %w", err)
+	}
+
+	tempPath := currentConfigPath + ".tmp"
+	if err := os.WriteFile(tempPath, serialized, 0o600); err != nil {
+		return fmt.Errorf("write rollout config: %w", err)
+	}
+
+	if err := os.Rename(tempPath, currentConfigPath); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("activate rollout config: %w", err)
+	}
+
+	return nil
+}
+
+func stageIntoManagedSlot(stagePath string, targetPath string) error {
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
+		return err
+	}
+
+	tempTarget := targetPath + ".tmp"
+	_ = os.Remove(tempTarget)
+	if err := os.Rename(stagePath, tempTarget); err != nil {
+		if err := resilience.CopyExecutable(stagePath, tempTarget); err != nil {
+			return err
+		}
+		_ = os.Remove(stagePath)
+	}
+
+	_ = os.Remove(targetPath)
+	if err := os.Rename(tempTarget, targetPath); err != nil {
+		_ = os.Remove(tempTarget)
+		return err
+	}
+
+	return nil
+}
+
+func configPathForDeviceID(deviceID string) (string, error) {
+	deviceClass := deviceConfigClass(deviceID)
+	appData := strings.TrimSpace(os.Getenv("APPDATA"))
+	if appData != "" {
+		switch deviceClass {
+		case "t":
+			return filepath.Join(appData, "T1Agent", "config.json"), nil
+		case "se":
+			return filepath.Join(appData, "SE1Agent", "config.json"), nil
+		case "ds":
+			return filepath.Join(appData, "DS1Agent", "config.json"), nil
+		case "s":
+			return filepath.Join(appData, "S1Agent", "config.json"), nil
+		case "d":
+			return filepath.Join(appData, "D1Agent", "config.json"), nil
+		case "e":
+			return filepath.Join(appData, "E1Agent", "config.json"), nil
+		case "a":
+			return filepath.Join(appData, "A1Agent", "config.json"), nil
+		default:
+			return filepath.Join(appData, "CordycepsAgent", "config.json"), nil
+		}
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+
+	switch deviceClass {
+	case "t":
+		return filepath.Join(homeDir, ".t1-agent", "config.json"), nil
+	case "se":
+		return filepath.Join(homeDir, ".se1-agent", "config.json"), nil
+	case "ds":
+		return filepath.Join(homeDir, ".ds1-agent", "config.json"), nil
+	case "s":
+		return filepath.Join(homeDir, ".s1-agent", "config.json"), nil
+	case "d":
+		return filepath.Join(homeDir, ".d1-agent", "config.json"), nil
+	case "e":
+		return filepath.Join(homeDir, ".e1-agent", "config.json"), nil
+	case "a":
+		return filepath.Join(homeDir, ".a1-agent", "config.json"), nil
+	default:
+		return filepath.Join(homeDir, ".cordyceps-agent", "config.json"), nil
+	}
+}
+
+func installedExePathForDeviceID(deviceID string) (string, error) {
+	deviceClass := deviceConfigClass(deviceID)
+	localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
+	if localAppData != "" {
+		switch deviceClass {
+		case "t":
+			return filepath.Join(localAppData, "T1Agent", "t1-agent.exe"), nil
+		case "se":
+			return filepath.Join(localAppData, "SE1Agent", "se1-agent.exe"), nil
+		case "ds":
+			return filepath.Join(localAppData, "DS1Agent", "ds1-agent.exe"), nil
+		case "s":
+			return filepath.Join(localAppData, "S1Agent", "s1-agent.exe"), nil
+		case "d":
+			return filepath.Join(localAppData, "D1Agent", "d1-agent.exe"), nil
+		case "e":
+			return filepath.Join(localAppData, "E1Agent", "e1-agent.exe"), nil
+		case "a":
+			return filepath.Join(localAppData, "A1Agent", "a1-agent.exe"), nil
+		default:
+			return filepath.Join(localAppData, "CordycepsAgent", "agent.exe"), nil
+		}
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+
+	switch deviceClass {
+	case "t":
+		return filepath.Join(homeDir, ".t1-agent", "t1-agent"), nil
+	case "se":
+		return filepath.Join(homeDir, ".se1-agent", "se1-agent"), nil
+	case "ds":
+		return filepath.Join(homeDir, ".ds1-agent", "ds1-agent"), nil
+	case "s":
+		return filepath.Join(homeDir, ".s1-agent", "s1-agent"), nil
+	case "d":
+		return filepath.Join(homeDir, ".d1-agent", "d1-agent"), nil
+	case "e":
+		return filepath.Join(homeDir, ".e1-agent", "e1-agent"), nil
+	case "a":
+		return filepath.Join(homeDir, ".a1-agent", "a1-agent"), nil
+	default:
+		return filepath.Join(homeDir, ".cordyceps-agent", "agent"), nil
+	}
+}
+
+func deviceConfigClass(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case strings.HasPrefix(normalized, "se"):
+		return "se"
+	case strings.HasPrefix(normalized, "ds"):
+		return "ds"
+	case strings.HasPrefix(normalized, "d"):
+		return "d"
+	case strings.HasPrefix(normalized, "s"):
+		return "s"
+	case strings.HasPrefix(normalized, "t"):
+		return "t"
+	case strings.HasPrefix(normalized, "e"):
+		return "e"
+	case strings.HasPrefix(normalized, "a"):
+		return "a"
+	default:
+		return "core"
+	}
+}
+
+func shouldInstallSiblingAgent(nextDeviceID string) bool {
+	nextClass := deviceConfigClass(nextDeviceID)
+	return nextClass != "d" && nextClass != "core"
+}
+
+func launchUpdaterScript(scriptPath string, usePrivilegedHelper bool) error {
+	if usePrivilegedHelper {
+		powershellScript := fmt.Sprintf(
+			"Start-Process -FilePath 'cmd.exe' -ArgumentList '/C \"\"%s\"\"' -Verb RunAs -WindowStyle Hidden",
+			strings.ReplaceAll(scriptPath, "'", "''"),
+		)
+
+		cmd := exec.Command(
+			"powershell",
+			"-NoProfile",
+			"-NonInteractive",
+			"-ExecutionPolicy",
+			"Bypass",
+			"-Command",
+			powershellScript,
+		)
+		configureHiddenProcess(cmd)
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		_ = cmd.Process.Release()
+		return nil
+	}
+
+	cmd := exec.Command("cmd", "/C", scriptPath)
+	configureHiddenProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	_ = cmd.Process.Release()
+
+	return nil
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func readStringArg(args map[string]any, key string) (string, error) {
+	value, ok := args[key]
+	if !ok {
+		return "", fmt.Errorf("missing arg: %s", key)
+	}
+
+	asString, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("arg must be string: %s", key)
+	}
+
+	asString = strings.TrimSpace(asString)
+	if asString == "" {
+		return "", fmt.Errorf("arg must not be empty: %s", key)
+	}
+
+	return asString, nil
+}
+
+func readOptionalStringArg(args map[string]any, key string) (string, error) {
+	value, ok := args[key]
+	if !ok || value == nil {
+		return "", nil
+	}
+
+	asString, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("arg must be string: %s", key)
+	}
+
+	asString = strings.TrimSpace(asString)
+	if asString == "" {
+		return "", nil
+	}
+
+	if len(asString) > 32 {
+		return "", fmt.Errorf("arg too long: %s", key)
+	}
+
+	return asString, nil
+}
+
+func readOptionalSizeArg(args map[string]any, key string) (int64, error) {
+	value, ok := args[key]
+	if !ok || value == nil {
+		return 0, nil
+	}
+
+	switch typed := value.(type) {
+	case float64:
+		if typed <= 0 || typed != math.Trunc(typed) {
+			return 0, fmt.Errorf("arg must be a positive integer: %s", key)
+		}
+		if typed > float64(maxPackageBytes) {
+			return 0, fmt.Errorf("arg %s exceeds max allowed size (%d)", key, maxPackageBytes)
+		}
+		return int64(typed), nil
+	case int:
+		if typed <= 0 {
+			return 0, fmt.Errorf("arg must be a positive integer: %s", key)
+		}
+		if int64(typed) > maxPackageBytes {
+			return 0, fmt.Errorf("arg %s exceeds max allowed size (%d)", key, maxPackageBytes)
+		}
+		return int64(typed), nil
+	case int64:
+		if typed <= 0 {
+			return 0, fmt.Errorf("arg must be a positive integer: %s", key)
+		}
+		if typed > maxPackageBytes {
+			return 0, fmt.Errorf("arg %s exceeds max allowed size (%d)", key, maxPackageBytes)
+		}
+		return typed, nil
+	default:
+		return 0, fmt.Errorf("arg must be a number: %s", key)
+	}
+}
+
+func readOptionalBoolArg(args map[string]any, key string) (bool, error) {
+	value, ok := args[key]
+	if !ok || value == nil {
+		return false, nil
+	}
+
+	switch typed := value.(type) {
+	case bool:
+		return typed, nil
+	case float64:
+		return typed != 0, nil
+	case int:
+		return typed != 0, nil
+	case int64:
+		return typed != 0, nil
+	case string:
+		normalized := strings.ToLower(strings.TrimSpace(typed))
+		switch normalized {
+		case "1", "true", "yes", "on":
+			return true, nil
+		case "0", "false", "no", "off":
+			return false, nil
+		default:
+			return false, fmt.Errorf("arg must be boolean: %s", key)
+		}
+	default:
+		return false, fmt.Errorf("arg must be boolean: %s", key)
+	}
+}
+
+func isSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+
+	for _, r := range value {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+			continue
+		}
+		return false
+	}
+
+	return true
+}
+
+func isSafeVersion(value string) bool {
+	for _, r := range value {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+
+	return true
+}
+
+func beginUpdate() error {
+	updateMu.Lock()
+	defer updateMu.Unlock()
+
+	if updateInProgress {
+		return errors.New("another update is already in progress")
+	}
+
+	updateInProgress = true
+	return nil
+}
+
+func endUpdate() {
+	updateMu.Lock()
+	updateInProgress = false
+	updateMu.Unlock()
+}

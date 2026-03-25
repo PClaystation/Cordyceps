@@ -60,6 +60,20 @@ $strainConfigs = @{
     ManageScript = "manage-s1-agent.ps1"
     ExeName = "s1-agent.exe"
   }
+  "d1" = @{
+    Dir = "d1"
+    BuildScript = "build-d1-usb.ps1"
+    InstallScript = "install-d1-agent.ps1"
+    ManageScript = "manage-d1-agent.ps1"
+    ExeName = "d1-agent.exe"
+  }
+  "ds1" = @{
+    Dir = "ds1"
+    BuildScript = "build-ds1-usb.ps1"
+    InstallScript = "install-ds1-agent.ps1"
+    ManageScript = "manage-ds1-agent.ps1"
+    ExeName = "ds1-agent.exe"
+  }
   "se1" = @{
     Dir = "se1"
     BuildScript = "build-se1-usb.ps1"
@@ -93,6 +107,10 @@ function Resolve-Strain([string]$value) {
     "t1" { return "t1" }
     "s" { return "s1" }
     "s1" { return "s1" }
+    "d" { return "d1" }
+    "d1" { return "d1" }
+    "ds" { return "ds1" }
+    "ds1" { return "ds1" }
     "se" { return "se1" }
     "se1" { return "se1" }
     "e" { return "e1" }
@@ -100,7 +118,7 @@ function Resolve-Strain([string]$value) {
     "a" { return "a1" }
     "a1" { return "a1" }
     default {
-      throw "Unknown strain '$value'. Use one of: t, e, s, se, a, agent."
+      throw "Unknown strain '$value'. Use one of: d, ds, t, e, s, se, a, agent."
     }
   }
 }
@@ -177,6 +195,8 @@ function Show-Help {
   Write-Host "  t   -> t1 (standard)"
   Write-Host "  e   -> e1 (secure + emergency)"
   Write-Host "  s   -> s1 (lite)"
+  Write-Host "  d   -> d1 (updater-only resident)"
+  Write-Host "  ds  -> ds1 (resident, ping-only, no updater)"
   Write-Host "  se  -> se1 (lite + emergency)"
   Write-Host "  a   -> a1 (admin)"
   Write-Host "  agent -> legacy Cordyceps/Jarvis agent"

@@ -1553,6 +1553,100 @@ test("profile policy blocks lite agents from standard power commands", async () 
   }
 });
 
+test("profile policy blocks updater-only agents from even basic commands", async () => {
+  const harness = await createHarness();
+  const { server, cleanup } = harness;
+
+  try {
+    addOnlineDevice(harness, {
+      deviceId: "d1",
+      capabilities: ["profile_d", "updater", "privileged_helper_split", "updater_only_d1"],
+    });
+
+    const blocked = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: authHeaders("owner-token"),
+      payload: {
+        text: "d1 ping",
+      },
+    });
+
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(blocked.json().error_code, "COMMAND_NOT_ALLOWED_FOR_PROFILE");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("profile policy allows ping for ds ping-only agents and blocks other commands", async () => {
+  const harness = await createHarness();
+  const { server, router, cleanup } = harness;
+
+  try {
+    addOnlineDevice(harness, {
+      deviceId: "ds1",
+      capabilities: ["profile_ds", "ping_only_ds1"],
+    });
+
+    const allowed = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: authHeaders("owner-token"),
+      payload: {
+        text: "ds1 ping",
+      },
+    });
+
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(allowed.json().parsed_type, "PING");
+    assert.equal(router.dispatchedToDevice.some((item) => item.deviceId === "ds1" && item.type === "PING"), true);
+
+    const blocked = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: authHeaders("owner-token"),
+      payload: {
+        text: "ds1 open notepad",
+      },
+    });
+
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(blocked.json().error_code, "COMMAND_NOT_ALLOWED_FOR_PROFILE");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("update rejects ds resident-only agents because they do not advertise updater support", async () => {
+  const harness = await createHarness();
+  const { server, cleanup } = harness;
+
+  try {
+    addOnlineDevice(harness, {
+      deviceId: "ds1",
+      capabilities: ["profile_ds", "ping_only_ds1"],
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/update",
+      headers: authHeaders("owner-token"),
+      payload: {
+        target: "ds1",
+        version: "1.0.1",
+        package_url: "https://example.com/ds1-agent.exe",
+        sha256: "a".repeat(64),
+      },
+    });
+
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.json().error_code, "UPDATER_NOT_SUPPORTED");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("profile policy allows type text for t/e/a and blocks lite profiles", async () => {
   const harness = await createHarness();
   const { server, router, cleanup } = harness;

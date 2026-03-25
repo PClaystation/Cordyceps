@@ -6,10 +6,13 @@ It is intentionally narrow. It only targets:
 
 - known agent process names
 - known scheduled task names
+- known Windows service names used by supported agent families
 - known `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` values
 - known `%LOCALAPPDATA%`, `%APPDATA%`, and `%PROGRAMDATA%` directories
 - updater and relaunch leftovers in `%TEMP%`
-- executable paths discovered from those exact tasks, run keys, and running agent processes
+- executable paths discovered from those exact tasks, services, run keys, and running agent processes
+
+The current supported family scope is `agent`, `t1`, `s1`, `d1`, `ds1`, `se1`, `e1`, and `a1`.
 
 ## Build
 

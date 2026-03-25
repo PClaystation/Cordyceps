@@ -16,6 +16,7 @@ import { inspectPackageFromUrl, PackageInspectionError } from "../update/package
 import {
   inferDesignationPrefixFromPackageUrl,
   prepareDesignationChange,
+  shouldPreserveCurrentDeviceForDesignationChange,
   type PreparedDesignationChange,
 } from "../update/designation";
 import { queuePolicyUpdate } from "../update/policyQueue";
@@ -260,7 +261,7 @@ const ADMIN_ONLY_COMMANDS = new Set([
   "SYSTEM_INFO",
 ]);
 
-type AgentProfile = "s" | "se" | "t" | "e" | "a" | "legacy";
+type AgentProfile = "d" | "ds" | "s" | "se" | "t" | "e" | "a" | "legacy";
 
 const LITE_PROFILE_COMMANDS = new Set([
   "PING",
@@ -751,8 +752,16 @@ function profileFromDeviceId(deviceId: string): AgentProfile {
     return "se";
   }
 
+  if (normalized.startsWith("ds")) {
+    return "ds";
+  }
+
   if (normalized.startsWith("s")) {
     return "s";
+  }
+
+  if (normalized.startsWith("d")) {
+    return "d";
   }
 
   if (normalized.startsWith("e")) {
@@ -779,8 +788,16 @@ function resolveDeviceProfile(deviceId: string, capabilities: string[] | null | 
     return "se";
   }
 
+  if (normalizedCapabilities.has("profile_ds")) {
+    return "ds";
+  }
+
   if (normalizedCapabilities.has("profile_s")) {
     return "s";
+  }
+
+  if (normalizedCapabilities.has("profile_d")) {
+    return "d";
   }
 
   if (normalizedCapabilities.has("profile_e")) {
@@ -802,6 +819,14 @@ function isCommandAllowedForProfile(profile: AgentProfile, commandType: string):
   if (profile === "legacy" || profile === "a") {
     return true;
   }
+
+	if (profile === "d") {
+		return false;
+	}
+
+	if (profile === "ds") {
+		return commandType === "PING";
+	}
 
   if (profile === "s") {
     return LITE_PROFILE_COMMANDS.has(commandType);
@@ -3628,7 +3653,14 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
 
         if (designationChange) {
           if (result.ok) {
-            deps.db.deleteDevice(designationChange.currentDeviceId);
+            if (
+              !shouldPreserveCurrentDeviceForDesignationChange(
+                designationChange.currentDeviceId,
+                designationChange.nextDeviceId,
+              )
+            ) {
+              deps.db.deleteDevice(designationChange.currentDeviceId);
+            }
           } else {
             deps.db.deleteDevice(designationChange.nextDeviceId);
           }
@@ -3767,7 +3799,14 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       const designationChange = preparedDesignationChanges.get(result.device_id);
       if (designationChange) {
         if (result.ok) {
-          deps.db.deleteDevice(designationChange.currentDeviceId);
+          if (
+            !shouldPreserveCurrentDeviceForDesignationChange(
+              designationChange.currentDeviceId,
+              designationChange.nextDeviceId,
+            )
+          ) {
+            deps.db.deleteDevice(designationChange.currentDeviceId);
+          }
         } else {
           deps.db.deleteDevice(designationChange.nextDeviceId);
         }

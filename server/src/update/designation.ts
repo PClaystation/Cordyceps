@@ -5,6 +5,15 @@ export interface PreparedDesignationChange {
   nextDeviceId: string;
 }
 
+export function shouldPreserveCurrentDeviceForDesignationChange(
+  currentDeviceId: string,
+  nextDeviceId: string,
+): boolean {
+  const currentPrefix = deviceIdPrefix(currentDeviceId);
+  const nextPrefix = deviceIdPrefix(nextDeviceId);
+  return (currentPrefix === "d" || currentPrefix === "ds") && nextPrefix !== "" && nextPrefix !== currentPrefix;
+}
+
 export function inferDesignationPrefixFromPackageUrl(packageUrl: string): string | null {
   const value = packageUrl.trim().toLowerCase();
   if (!value) {
@@ -13,6 +22,10 @@ export function inferDesignationPrefixFromPackageUrl(packageUrl: string): string
 
   if (value.includes("se1-agent")) {
     return "se";
+  }
+
+  if (value.includes("ds1-agent")) {
+    return "ds";
   }
 
   if (value.includes("e1-agent")) {
@@ -27,6 +40,10 @@ export function inferDesignationPrefixFromPackageUrl(packageUrl: string): string
     return "s";
   }
 
+  if (value.includes("d1-agent")) {
+    return "d";
+  }
+
   if (value.includes("a1-agent")) {
     return "a";
   }
@@ -39,8 +56,14 @@ export function inferDesignationPrefixFromPackageUrl(packageUrl: string): string
 }
 
 function deviceIdPrefix(deviceId: string): string {
-  const match = deviceId.trim().toLowerCase().match(/^[a-z]+/);
-  return match ? match[0].slice(0, 1) : "";
+  const normalized = deviceId.trim().toLowerCase();
+  const knownPrefixes = ["se", "ds", "s", "d", "t", "e", "a", "m"];
+  for (const prefix of knownPrefixes) {
+    if (normalized.startsWith(prefix)) {
+      return prefix;
+    }
+  }
+  return "";
 }
 
 export function prepareDesignationChange(

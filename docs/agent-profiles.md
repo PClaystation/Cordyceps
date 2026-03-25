@@ -1,8 +1,10 @@
 # Agent Strains
 
-Cordyceps has five intentionally distinct agent strains:
+Cordyceps has seven intentionally distinct agent strains:
 
 - `s` (`s*` device IDs): lite profile for users who want only basic remote control and no emergency lockdown.
+- `d` (`d*` device IDs): updater-only resident profile with no runnable command surface.
+- `ds` (`ds*` device IDs): resident profile with no updater and only `PING`.
 - `se` (`se*` device IDs): `s` + emergency lockdown security features.
 - `t` (`t*` device IDs): regular full remote control profile.
 - `e` (`e*` device IDs): `t` + emergency lockdown + stricter local security model.
@@ -14,6 +16,16 @@ Global reliability guardrails:
 - `AGENT_REMOVE` is blocked unless `CORDYCEPS_ALLOW_AGENT_REMOVE=1` or `JARVIS_ALLOW_AGENT_REMOVE=1` is set on the target device.
 
 ## Strain Command Surface Matrix
+
+### `d` (updater-only resident)
+
+- Includes: `AGENT_UPDATE`.
+- Excludes: all other command families.
+
+### `ds` (ping-only resident, no updater)
+
+- Includes: `PING`.
+- Excludes: `AGENT_UPDATE` and all other command families.
 
 ### `s` (lite)
 
@@ -46,6 +58,8 @@ Global reliability guardrails:
 Each strain family advertises a profile capability marker:
 
 - `s`: `profile_s`
+- `d`: `profile_d`
+- `ds`: `profile_ds`
 - `se`: `profile_se`
 - `t`: `profile_t`
 - `e`: `profile_e`

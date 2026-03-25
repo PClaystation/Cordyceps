@@ -26,6 +26,7 @@ type strainDefinition struct {
 	Description      string
 	ProcessNames     []string
 	TaskNames        []string
+	ServiceNames     []string
 	RunValueNames    []string
 	LocalAppDataDirs []string
 	AppDataDirs      []string
@@ -44,6 +45,7 @@ type inspection struct {
 	Scope            []string
 	ProcessCounts    map[string]int
 	PresentTasks     []string
+	PresentServices  []string
 	PresentRunValues []string
 	PresentPaths     []string
 	DynamicPaths     []string
@@ -64,6 +66,7 @@ func (i inspection) processHits() int {
 func (i inspection) artifactCount() int {
 	return i.processHits() +
 		len(i.PresentTasks) +
+		len(i.PresentServices) +
 		len(i.PresentRunValues) +
 		len(i.PresentPaths) +
 		len(i.DynamicPaths) +
@@ -95,6 +98,8 @@ var strainOrder = []string{
 	"agent",
 	"t1",
 	"s1",
+	"d1",
+	"ds1",
 	"se1",
 	"e1",
 	"a1",
@@ -158,6 +163,46 @@ var strains = map[string]strainDefinition{
 			"s1-agent-update-*.exe.part",
 			"s1-agent-updater-*.cmd",
 			"s1-launch-*.cmd",
+		},
+	},
+	"d1": {
+		Key:           "d1",
+		Description:   "D1 agent",
+		ProcessNames:  []string{"d1-agent.exe", "d1-guardian.exe"},
+		TaskNames:     []string{"DevHelperBackgroundLogon", "DevHelperBackgroundBoot", "DevHelperBackgroundWatchdog", "D1GuardianLogon", "D1GuardianBoot", "D1GuardianWatchdog", "D1Agent", "D1AgentBoot", "D1AgentWatchdog"},
+		ServiceNames:  []string{"CordycepsD1", "CordycepsD1Guardian"},
+		RunValueNames: []string{"D1Agent", "D1Guardian"},
+		LocalAppDataDirs: []string{
+			"D1Agent",
+		},
+		AppDataDirs: []string{
+			"D1Agent",
+		},
+		ProgramDataDirs: []string{
+			"CordycepsD1",
+		},
+		TempGlobs: []string{
+			"d1-agent-update-*.exe",
+			"d1-agent-update-*.exe.part",
+			"d1-agent-updater-*.cmd",
+			"d1-launch-*.cmd",
+		},
+	},
+	"ds1": {
+		Key:           "ds1",
+		Description:   "DS1 agent",
+		ProcessNames:  []string{"ds1-agent.exe"},
+		TaskNames:     []string{"DS1AgentLogon", "DS1AgentBoot", "DS1AgentWatchdog", "DS1Agent", "DS1AgentBoot", "DS1AgentWatchdog"},
+		ServiceNames:  []string{"CordycepsDS1"},
+		RunValueNames: []string{"DS1Agent"},
+		LocalAppDataDirs: []string{
+			"DS1Agent",
+		},
+		AppDataDirs: []string{
+			"DS1Agent",
+		},
+		TempGlobs: []string{
+			"ds1-launch-*.cmd",
 		},
 	},
 	"se1": {
@@ -232,7 +277,7 @@ func main() {
 	}
 
 	modeFlag := flag.String("mode", "clean", "Mode: inspect or clean")
-	scopeFlag := flag.String("scope", "all", "Scope: all or comma-separated strain keys (agent,t1,s1,se1,e1,a1)")
+	scopeFlag := flag.String("scope", "all", fmt.Sprintf("Scope: all or comma-separated strain keys (%s)", supportedScopeLabel()))
 	dryRunFlag := flag.Bool("dry-run", false, "Show what clean would remove without making changes")
 	versionFlag := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
@@ -298,6 +343,10 @@ func runInteractiveApp() {
 	showInfoDialog("Cordyceps Pesticide", interactiveCleanupMessage(summary, false))
 }
 
+func supportedScopeLabel() string {
+	return "all," + strings.Join(strainOrder, ",")
+}
+
 func resolveScope(raw string) ([]string, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(raw))
 	if trimmed == "" || trimmed == "all" {
@@ -355,6 +404,7 @@ func inspectHost(scope []string, host hostPaths) inspection {
 	}
 
 	presentTasks := make([]string, 0)
+	presentServices := make([]string, 0)
 	presentRunValues := make([]string, 0)
 	presentPathsSet := map[string]bool{}
 	dynamicPathsSet := map[string]bool{}
@@ -368,6 +418,15 @@ func inspectHost(scope []string, host hostPaths) inspection {
 				presentTasks = append(presentTasks, taskName)
 			}
 			for _, candidate := range discoverTaskExecutablePaths(taskName) {
+				addNormalizedPath(dynamicPathsSet, candidate)
+			}
+		}
+
+		for _, serviceName := range def.ServiceNames {
+			if serviceExists(serviceName) {
+				presentServices = append(presentServices, serviceName)
+			}
+			for _, candidate := range discoverServiceExecutablePaths(serviceName) {
 				addNormalizedPath(dynamicPathsSet, candidate)
 			}
 		}
@@ -402,6 +461,7 @@ func inspectHost(scope []string, host hostPaths) inspection {
 		Scope:            scope,
 		ProcessCounts:    processCounts,
 		PresentTasks:     uniqueSorted(presentTasks),
+		PresentServices:  uniqueSorted(presentServices),
 		PresentRunValues: uniqueSorted(presentRunValues),
 		PresentPaths:     sortedKeys(presentPathsSet),
 		DynamicPaths:     sortedKeys(dynamicPathsSet),
@@ -428,21 +488,29 @@ func cleanHost(report inspection, dryRun bool) cleanupSummary {
 	}
 
 	taskNames := make([]string, 0)
+	serviceNames := make([]string, 0)
 	runValues := make([]string, 0)
 	processNames := make([]string, 0)
 	for _, key := range report.Scope {
 		def := strains[key]
 		taskNames = append(taskNames, def.TaskNames...)
+		serviceNames = append(serviceNames, def.ServiceNames...)
 		runValues = append(runValues, def.RunValueNames...)
 		processNames = append(processNames, def.ProcessNames...)
 	}
 	taskNames = uniqueSorted(taskNames)
+	serviceNames = uniqueSorted(serviceNames)
 	runValues = uniqueSorted(runValues)
 	processNames = uniqueSorted(processNames)
 
 	for _, taskName := range taskNames {
 		ok, missing, err := deleteScheduledTask(taskName, dryRun)
 		record(ok, missing, "task "+taskName, err)
+	}
+
+	for _, serviceName := range serviceNames {
+		ok, missing, err := deleteService(serviceName, dryRun)
+		record(ok, missing, "service "+serviceName, err)
 	}
 
 	for _, runValue := range runValues {
@@ -527,6 +595,26 @@ func discoverTaskExecutablePaths(taskName string) []string {
 		addIfExecutablePath(&paths, action.Command)
 	}
 	return uniqueSorted(paths)
+}
+
+func serviceExists(serviceName string) bool {
+	cmd := exec.Command("sc.exe", "query", serviceName)
+	return cmd.Run() == nil
+}
+
+func discoverServiceExecutablePaths(serviceName string) []string {
+	cmd := exec.Command("sc.exe", "qc", serviceName)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	match := exePathPattern.FindStringSubmatch(string(output))
+	if len(match) < 2 {
+		return nil
+	}
+
+	return []string{filepath.Clean(match[1])}
 }
 
 func discoverRunValueExecutablePaths(valueName string) []string {
@@ -617,6 +705,31 @@ func deleteScheduledTask(taskName string, dryRun bool) (bool, bool, error) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return false, false, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
+	return true, false, nil
+}
+
+func deleteService(serviceName string, dryRun bool) (bool, bool, error) {
+	if !serviceExists(serviceName) {
+		return false, true, nil
+	}
+	if dryRun {
+		return true, false, nil
+	}
+
+	if output, err := exec.Command("sc.exe", "stop", serviceName).CombinedOutput(); err != nil {
+		lower := strings.ToLower(string(output))
+		if !strings.Contains(lower, "service has not been started") &&
+			!strings.Contains(lower, "service not active") &&
+			!strings.Contains(lower, "service cannot accept control messages at this time") {
+			return false, false, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+		}
+	}
+
+	cmd := exec.Command("sc.exe", "delete", serviceName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return false, false, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+
 	return true, false, nil
 }
 
@@ -798,6 +911,9 @@ func printInspection(mode string, dryRun bool, report inspection) {
 	fmt.Println("Scheduled tasks:")
 	printStringList(report.PresentTasks)
 
+	fmt.Println("Windows services:")
+	printStringList(report.PresentServices)
+
 	fmt.Println("Run keys:")
 	printStringList(report.PresentRunValues)
 
@@ -847,6 +963,7 @@ func interactiveInspectionMessage(report inspection) string {
 		"",
 		fmt.Sprintf("Processes: %d", report.processHits()),
 		fmt.Sprintf("Scheduled tasks: %d", len(report.PresentTasks)),
+		fmt.Sprintf("Windows services: %d", len(report.PresentServices)),
 		fmt.Sprintf("Run keys: %d", len(report.PresentRunValues)),
 		fmt.Sprintf("Known install/data paths: %d", len(report.PresentPaths)),
 		fmt.Sprintf("Discovered executable paths: %d", len(report.DynamicPaths)),

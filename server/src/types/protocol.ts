@@ -154,7 +154,7 @@ export interface CommandDispatchResult {
   completed_at: string;
 }
 
-export type AgentProfile = "s" | "se" | "t" | "e" | "a" | "legacy";
+export type AgentProfile = "d" | "ds" | "s" | "se" | "t" | "e" | "a" | "legacy";
 
 export interface DeviceRecord {
   device_id: string;

@@ -3,7 +3,11 @@ import { EventHub } from "../events/eventHub";
 import { DeviceRegistry } from "../realtime/deviceRegistry";
 import { CommandRouter, DispatchError } from "../router/commandRouter";
 import { log } from "../utils/logger";
-import { inferDesignationPrefixFromPackageUrl, prepareDesignationChange } from "./designation";
+import {
+  inferDesignationPrefixFromPackageUrl,
+  prepareDesignationChange,
+  shouldPreserveCurrentDeviceForDesignationChange,
+} from "./designation";
 
 interface QueuedUpdateDispatcherDeps {
   db: Database;
@@ -211,7 +215,14 @@ export class QueuedUpdateDispatcher {
 
       if (designationChange) {
         if (result.ok) {
-          this.deps.db.deleteDevice(designationChange.currentDeviceId);
+          if (
+            !shouldPreserveCurrentDeviceForDesignationChange(
+              designationChange.currentDeviceId,
+              designationChange.nextDeviceId,
+            )
+          ) {
+            this.deps.db.deleteDevice(designationChange.currentDeviceId);
+          }
         } else {
           this.deps.db.deleteDevice(designationChange.nextDeviceId);
         }

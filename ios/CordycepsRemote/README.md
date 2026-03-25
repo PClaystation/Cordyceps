@@ -71,6 +71,8 @@ Then tap `Load` to fetch devices.
 
 - This app talks to the same server endpoints used by the web PWA.
 - Agent strain model is documented in `/docs/agent-profiles.md`:
+  - `d` = updater-only resident strain
+  - `ds` = ping-only resident strain without updater
   - `s` = lite/basic strain
   - `se` = lite + emergency lockdown strain
   - `t` = regular remote-control strain
