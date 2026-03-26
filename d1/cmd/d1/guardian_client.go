@@ -41,6 +41,12 @@ func ensureGuardianPresentAndRunning(agentExecutablePath string, paths resilienc
 		return fmt.Errorf("guardian executable is missing at %s", guardianTarget)
 	}
 
+	if installedAsService, err := ensureGuardianWindowsServiceRunning(guardianTarget, paths); err != nil {
+		return err
+	} else if installedAsService {
+		return nil
+	}
+
 	return background.RelaunchDetached(guardianTarget, []string{
 		"--config", paths.ConfigPath,
 		"--install-root", paths.InstallRoot,

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,9 +42,29 @@ type hostPaths struct {
 	Temp         string
 }
 
+type runningProcess struct {
+	PID             int
+	Name            string
+	Path            string
+	CompanyName     string
+	FileDescription string
+	ProductName     string
+	OriginalName    string
+	InternalName    string
+	Comments        string
+}
+
+type processMatch struct {
+	PID              int
+	Name             string
+	Path             string
+	Reason           string
+	RemoveExecutable bool
+}
+
 type inspection struct {
 	Scope            []string
-	ProcessCounts    map[string]int
+	MatchedProcesses []processMatch
 	PresentTasks     []string
 	PresentServices  []string
 	PresentRunValues []string
@@ -53,14 +74,7 @@ type inspection struct {
 }
 
 func (i inspection) processHits() int {
-	total := 0
-	for _, key := range i.Scope {
-		def := strains[key]
-		for _, processName := range def.ProcessNames {
-			total += i.ProcessCounts[strings.ToLower(processName)]
-		}
-	}
-	return total
+	return len(i.MatchedProcesses)
 }
 
 func (i inspection) artifactCount() int {
@@ -312,6 +326,12 @@ func main() {
 		return
 	}
 
+	if !report.hasArtifacts() {
+		fmt.Println()
+		fmt.Println("No matching Cordyceps/Jarvis artifacts were found. Nothing was removed.")
+		return
+	}
+
 	summary := cleanHost(report, *dryRunFlag)
 	printCleanupSummary(summary, *dryRunFlag)
 
@@ -397,10 +417,10 @@ func detectHostPaths() hostPaths {
 }
 
 func inspectHost(scope []string, host hostPaths) inspection {
-	processCounts, processErr := listProcesses()
+	processes, processErr := listProcesses()
 	if processErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: enumerate processes: %v\n", processErr)
-		processCounts = map[string]int{}
+		processes = nil
 	}
 
 	presentTasks := make([]string, 0)
@@ -409,9 +429,17 @@ func inspectHost(scope []string, host hostPaths) inspection {
 	presentPathsSet := map[string]bool{}
 	dynamicPathsSet := map[string]bool{}
 	tempPathsSet := map[string]bool{}
+	knownProcessNamesSet := map[string]bool{}
+	knownInternalNamesSet := map[string]bool{}
+	knownRootPathsSet := map[string]bool{}
+	exactExecutablePathsSet := map[string]bool{}
 
 	for _, key := range scope {
 		def := strains[key]
+		for _, processName := range def.ProcessNames {
+			knownProcessNamesSet[strings.ToLower(processName)] = true
+			knownInternalNamesSet[strings.ToLower(strings.TrimSuffix(processName, ".exe"))] = true
+		}
 
 		for _, taskName := range def.TaskNames {
 			if taskExists(taskName) {
@@ -419,6 +447,7 @@ func inspectHost(scope []string, host hostPaths) inspection {
 			}
 			for _, candidate := range discoverTaskExecutablePaths(taskName) {
 				addNormalizedPath(dynamicPathsSet, candidate)
+				addNormalizedPath(exactExecutablePathsSet, candidate)
 			}
 		}
 
@@ -428,6 +457,7 @@ func inspectHost(scope []string, host hostPaths) inspection {
 			}
 			for _, candidate := range discoverServiceExecutablePaths(serviceName) {
 				addNormalizedPath(dynamicPathsSet, candidate)
+				addNormalizedPath(exactExecutablePathsSet, candidate)
 			}
 		}
 
@@ -437,18 +467,14 @@ func inspectHost(scope []string, host hostPaths) inspection {
 			}
 			for _, candidate := range discoverRunValueExecutablePaths(runValue) {
 				addNormalizedPath(dynamicPathsSet, candidate)
+				addNormalizedPath(exactExecutablePathsSet, candidate)
 			}
 		}
 
 		for _, candidate := range collectKnownPaths(def, host) {
+			addNormalizedPath(knownRootPathsSet, candidate)
 			if pathExists(candidate) {
 				addNormalizedPath(presentPathsSet, candidate)
-			}
-		}
-
-		for _, processName := range def.ProcessNames {
-			for _, candidate := range discoverProcessExecutablePaths(processName) {
-				addNormalizedPath(dynamicPathsSet, candidate)
 			}
 		}
 
@@ -457,9 +483,29 @@ func inspectHost(scope []string, host hostPaths) inspection {
 		}
 	}
 
+	selfPath := ""
+	if executablePath, err := os.Executable(); err == nil {
+		selfPath = normalizePath(executablePath)
+	}
+
+	matchedProcesses := matchProcesses(
+		processes,
+		sortedKeys(knownProcessNamesSet),
+		sortedKeys(knownInternalNamesSet),
+		sortedKeys(knownRootPathsSet),
+		sortedKeys(exactExecutablePathsSet),
+		os.Getpid(),
+		selfPath,
+	)
+	for _, process := range matchedProcesses {
+		if process.RemoveExecutable {
+			addNormalizedPath(dynamicPathsSet, process.Path)
+		}
+	}
+
 	return inspection{
 		Scope:            scope,
-		ProcessCounts:    processCounts,
+		MatchedProcesses: matchedProcesses,
 		PresentTasks:     uniqueSorted(presentTasks),
 		PresentServices:  uniqueSorted(presentServices),
 		PresentRunValues: uniqueSorted(presentRunValues),
@@ -490,18 +536,15 @@ func cleanHost(report inspection, dryRun bool) cleanupSummary {
 	taskNames := make([]string, 0)
 	serviceNames := make([]string, 0)
 	runValues := make([]string, 0)
-	processNames := make([]string, 0)
 	for _, key := range report.Scope {
 		def := strains[key]
 		taskNames = append(taskNames, def.TaskNames...)
 		serviceNames = append(serviceNames, def.ServiceNames...)
 		runValues = append(runValues, def.RunValueNames...)
-		processNames = append(processNames, def.ProcessNames...)
 	}
 	taskNames = uniqueSorted(taskNames)
 	serviceNames = uniqueSorted(serviceNames)
 	runValues = uniqueSorted(runValues)
-	processNames = uniqueSorted(processNames)
 
 	for _, taskName := range taskNames {
 		ok, missing, err := deleteScheduledTask(taskName, dryRun)
@@ -518,9 +561,9 @@ func cleanHost(report inspection, dryRun bool) cleanupSummary {
 		record(ok, missing, "run key "+runValue, err)
 	}
 
-	for _, processName := range processNames {
-		ok, missing, err := killProcess(processName, dryRun)
-		record(ok, missing, "process "+processName, err)
+	for _, process := range report.MatchedProcesses {
+		ok, missing, err := killProcess(process, dryRun)
+		record(ok, missing, describeProcess(process), err)
 	}
 
 	for _, candidate := range uniqueSorted(append(report.DynamicPaths, report.PresentPaths...)) {
@@ -542,8 +585,23 @@ func cleanHost(report inspection, dryRun bool) cleanupSummary {
 	return summary
 }
 
-func listProcesses() (map[string]int, error) {
-	cmd := exec.Command("tasklist", "/NH", "/FO", "CSV")
+func listProcesses() ([]runningProcess, error) {
+	script := "$ErrorActionPreference='SilentlyContinue'; Get-CimInstance Win32_Process | ForEach-Object { " +
+		"$path = $_.ExecutablePath; " +
+		"$version = $null; " +
+		"if ($path -and (Test-Path -LiteralPath $path)) { try { $version = (Get-Item -LiteralPath $path).VersionInfo } catch {} }; " +
+		"[pscustomobject]@{ " +
+		"ProcessId = $_.ProcessId; " +
+		"Name = $_.Name; " +
+		"ExecutablePath = $path; " +
+		"CompanyName = if ($version) { $version.CompanyName } else { '' }; " +
+		"FileDescription = if ($version) { $version.FileDescription } else { '' }; " +
+		"ProductName = if ($version) { $version.ProductName } else { '' }; " +
+		"OriginalFilename = if ($version) { $version.OriginalFilename } else { '' }; " +
+		"InternalName = if ($version) { $version.InternalName } else { '' }; " +
+		"Comments = if ($version) { $version.Comments } else { '' } " +
+		"} } | ConvertTo-Csv -NoTypeInformation"
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -554,18 +612,43 @@ func listProcesses() (map[string]int, error) {
 		return nil, err
 	}
 
-	counts := make(map[string]int, len(records))
-	for _, record := range records {
-		if len(record) == 0 {
+	processes := make([]runningProcess, 0, len(records))
+	for index, record := range records {
+		if index == 0 || len(record) < 8 {
 			continue
 		}
-		name := strings.ToLower(strings.TrimSpace(record[0]))
+		pid, err := strconv.Atoi(strings.TrimSpace(record[0]))
+		if err != nil {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(record[1]))
 		if name == "" {
 			continue
 		}
-		counts[name]++
+		processes = append(processes, runningProcess{
+			PID:             pid,
+			Name:            name,
+			Path:            normalizePath(record[2]),
+			CompanyName:     strings.TrimSpace(record[3]),
+			FileDescription: strings.TrimSpace(record[4]),
+			ProductName:     strings.TrimSpace(record[5]),
+			OriginalName:    strings.TrimSpace(record[6]),
+			InternalName:    strings.TrimSpace(record[7]),
+			Comments: func() string {
+				if len(record) > 8 {
+					return strings.TrimSpace(record[8])
+				}
+				return ""
+			}(),
+		})
 	}
-	return counts, nil
+	sort.Slice(processes, func(i, j int) bool {
+		if processes[i].Name == processes[j].Name {
+			return processes[i].PID < processes[j].PID
+		}
+		return processes[i].Name < processes[j].Name
+	})
+	return processes, nil
 }
 
 func taskExists(taskName string) bool {
@@ -630,26 +713,6 @@ func discoverRunValueExecutablePaths(valueName string) []string {
 	}
 
 	return []string{filepath.Clean(match[1])}
-}
-
-func discoverProcessExecutablePaths(processName string) []string {
-	baseName := strings.TrimSuffix(processName, ".exe")
-	script := fmt.Sprintf(
-		"$ErrorActionPreference='SilentlyContinue'; Get-Process -Name '%s' | ForEach-Object { if ($_.Path) { $_.Path } }",
-		escapePowerShellSingleQuoted(baseName),
-	)
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
-
-	lines := strings.Split(string(output), "\n")
-	paths := make([]string, 0, len(lines))
-	for _, line := range lines {
-		addIfExecutablePath(&paths, line)
-	}
-	return uniqueSorted(paths)
 }
 
 func collectKnownPaths(def strainDefinition, host hostPaths) []string {
@@ -747,27 +810,27 @@ func deleteRunValue(valueName string, dryRun bool) (bool, bool, error) {
 	return true, false, nil
 }
 
-func killProcess(processName string, dryRun bool) (bool, bool, error) {
-	if !processRunning(processName) {
+func killProcess(process processMatch, dryRun bool) (bool, bool, error) {
+	if !processRunning(process.PID) {
 		return false, true, nil
 	}
 	if dryRun {
 		return true, false, nil
 	}
-	cmd := exec.Command("taskkill", "/F", "/T", "/IM", processName)
+	cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(process.PID))
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return false, false, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return true, false, nil
 }
 
-func processRunning(processName string) bool {
-	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s", processName))
+func processRunning(pid int) bool {
+	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/NH", "/FO", "CSV")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(string(output)), strings.ToLower(processName))
+	return !strings.Contains(strings.ToLower(string(output)), "no tasks are running")
 }
 
 func removePath(target string, dryRun bool) (bool, bool, error) {
@@ -823,19 +886,19 @@ func pathExists(target string) bool {
 }
 
 func addNormalizedPath(set map[string]bool, candidate string) {
-	cleaned := strings.TrimSpace(candidate)
+	cleaned := normalizePath(candidate)
 	if cleaned == "" {
 		return
 	}
-	set[filepath.Clean(cleaned)] = true
+	set[cleaned] = true
 }
 
 func addNormalizedPathSlice(paths *[]string, candidate string) {
-	cleaned := strings.TrimSpace(candidate)
+	cleaned := normalizePath(candidate)
 	if cleaned == "" {
 		return
 	}
-	*paths = append(*paths, filepath.Clean(cleaned))
+	*paths = append(*paths, cleaned)
 }
 
 func addIfExecutablePath(paths *[]string, candidate string) {
@@ -875,8 +938,161 @@ func sortedKeys(set map[string]bool) []string {
 	return items
 }
 
-func escapePowerShellSingleQuoted(value string) string {
-	return strings.ReplaceAll(value, "'", "''")
+func matchProcesses(processes []runningProcess, knownNames []string, knownInternalNames []string, knownRoots []string, exactPaths []string, selfPID int, selfPath string) []processMatch {
+	if len(processes) == 0 {
+		return nil
+	}
+
+	nameSet := make(map[string]bool, len(knownNames))
+	for _, name := range knownNames {
+		normalized := strings.ToLower(strings.TrimSpace(name))
+		if normalized != "" {
+			nameSet[normalized] = true
+		}
+	}
+
+	internalNameSet := make(map[string]bool, len(knownInternalNames))
+	for _, name := range knownInternalNames {
+		normalized := strings.ToLower(strings.TrimSpace(name))
+		if normalized != "" {
+			internalNameSet[normalized] = true
+		}
+	}
+
+	exactPathSet := make(map[string]bool, len(exactPaths))
+	for _, path := range exactPaths {
+		normalized := normalizePath(path)
+		if normalized != "" {
+			exactPathSet[strings.ToLower(normalized)] = true
+		}
+	}
+
+	selfPath = strings.ToLower(normalizePath(selfPath))
+	normalizedRoots := make([]string, 0, len(knownRoots))
+	for _, root := range knownRoots {
+		normalized := normalizePath(root)
+		if normalized != "" {
+			normalizedRoots = append(normalizedRoots, strings.ToLower(normalized))
+		}
+	}
+
+	matches := make([]processMatch, 0)
+	for _, process := range processes {
+		if process.PID == selfPID {
+			continue
+		}
+		if selfPath != "" && strings.EqualFold(process.Path, selfPath) {
+			continue
+		}
+
+		reason := ""
+		removeExecutable := false
+		if process.Path != "" {
+			lowerPath := strings.ToLower(process.Path)
+			if exactPathSet[lowerPath] {
+				reason = "discovered executable path"
+				removeExecutable = true
+			} else if matchesKnownAgentMetadata(process, internalNameSet) {
+				reason = "embedded metadata"
+				removeExecutable = true
+			} else if pathWithinAnyRoot(lowerPath, normalizedRoots) {
+				reason = "known install/data root"
+				removeExecutable = true
+			}
+		}
+		if reason == "" && nameSet[strings.ToLower(strings.TrimSpace(process.Name))] {
+			reason = "name"
+			removeExecutable = false
+		}
+
+		if reason == "" && matchesKnownAgentMetadata(process, internalNameSet) {
+			reason = "embedded metadata"
+			removeExecutable = true
+		}
+
+		if reason == "" {
+			continue
+		}
+
+		if removeExecutable && process.Path == "" {
+			removeExecutable = false
+		}
+
+		matches = append(matches, processMatch{
+			PID:              process.PID,
+			Name:             process.Name,
+			Path:             process.Path,
+			Reason:           reason,
+			RemoveExecutable: removeExecutable,
+		})
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].Name == matches[j].Name {
+			if matches[i].Path == matches[j].Path {
+				return matches[i].PID < matches[j].PID
+			}
+			return matches[i].Path < matches[j].Path
+		}
+		return matches[i].Name < matches[j].Name
+	})
+
+	return matches
+}
+
+func matchesKnownAgentMetadata(process runningProcess, internalNameSet map[string]bool) bool {
+	internalName := strings.ToLower(strings.TrimSpace(process.InternalName))
+	if internalName != "" && internalNameSet[internalName] {
+		return true
+	}
+
+	comments := strings.ToLower(strings.TrimSpace(process.Comments))
+	if comments != "cordyceps windows agent" {
+		return false
+	}
+
+	combined := strings.ToLower(strings.Join([]string{
+		process.ProductName,
+		process.FileDescription,
+		process.InternalName,
+		process.OriginalName,
+	}, " "))
+
+	if strings.Contains(combined, "pesticide") {
+		return false
+	}
+
+	hasFamilyMarker := strings.Contains(combined, "cordyceps") || strings.Contains(combined, "jarvis")
+	hasRoleMarker := strings.Contains(combined, "agent") || strings.Contains(combined, "guardian") || strings.Contains(combined, "watchdog")
+	return hasFamilyMarker && hasRoleMarker
+}
+
+func pathWithinAnyRoot(lowerPath string, lowerRoots []string) bool {
+	for _, lowerRoot := range lowerRoots {
+		if lowerPath == lowerRoot || strings.HasPrefix(lowerPath, lowerRoot+`\`) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizePath(candidate string) string {
+	cleaned := strings.TrimSpace(candidate)
+	if cleaned == "" {
+		return ""
+	}
+	return filepath.Clean(cleaned)
+}
+
+func describeProcess(process processMatch) string {
+	message := fmt.Sprintf("process pid %d (%s)", process.PID, process.Name)
+	if process.Path != "" {
+		message += " " + process.Path
+	}
+	if process.Reason != "" {
+		message += " [" + process.Reason + "]"
+	}
+	return message
 }
 
 func printInspection(mode string, dryRun bool, report inspection) {
@@ -889,23 +1105,20 @@ func printInspection(mode string, dryRun bool, report inspection) {
 	fmt.Printf("Scope: %s\n", strings.Join(report.Scope, ", "))
 	fmt.Println()
 
-	processNames := make([]string, 0)
-	for _, key := range report.Scope {
-		processNames = append(processNames, strains[key].ProcessNames...)
-	}
-	processNames = uniqueSorted(processNames)
-
 	fmt.Println("Process hits:")
-	processHit := false
-	for _, processName := range processNames {
-		count := report.ProcessCounts[strings.ToLower(processName)]
-		if count > 0 {
-			processHit = true
-			fmt.Printf("  - %s x%d\n", processName, count)
-		}
-	}
-	if !processHit {
+	if len(report.MatchedProcesses) == 0 {
 		fmt.Println("  - none")
+	} else {
+		for _, process := range report.MatchedProcesses {
+			fmt.Printf("  - pid %d %s", process.PID, process.Name)
+			if process.Path != "" {
+				fmt.Printf(" -> %s", process.Path)
+			}
+			if process.Reason != "" {
+				fmt.Printf(" [%s]", process.Reason)
+			}
+			fmt.Println()
+		}
 	}
 
 	fmt.Println("Scheduled tasks:")

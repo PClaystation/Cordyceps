@@ -183,6 +183,12 @@ func runStandaloneAgent(opts agentOptions) error {
 			return nil
 		}
 
+		if managedByService, err := ensureWindowsPersistenceServices(opts, paths, executableResolved, executablePath); err != nil {
+			log.Printf("warning: Windows service bootstrap failed; falling back to user-mode persistence: %v", err)
+		} else if managedByService {
+			return nil
+		}
+
 		if shouldRelaunchDetached(opts.background, opts.foreground, opts.runAgent, opts.enrollOnly) {
 			args := relaunchArgs(os.Args[1:])
 			if err := background.RelaunchDetached(executablePath, args); err != nil {
@@ -879,7 +885,7 @@ func installAndRelaunchIfNeeded(
 	}
 
 	relaunchPathArgs := relaunchArgs(args)
-	if err := background.RelaunchAfterParentExit(installedPath, relaunchPathArgs); err != nil {
+	if err := background.RelaunchDetached(installedPath, relaunchPathArgs); err != nil {
 		return false, fmt.Errorf("launch installed agent: %w", err)
 	}
 

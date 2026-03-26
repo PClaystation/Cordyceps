@@ -103,26 +103,23 @@ func Apply(args map[string]any, executablePath string, cfgPath string, paths res
 			return Result{}, fmt.Errorf("prepare migrated config: %w", err)
 		}
 
-		targetPath, err := installedExePathForDeviceID(request.NextDeviceID)
+		targetPath, err := installedExePathForSiblingDeviceID(paths, request.NextDeviceID)
 		if err != nil {
 			_ = os.Remove(stagePath)
 			return Result{}, fmt.Errorf("resolve sibling install path: %w", err)
 		}
 
-		scriptPath, err := writeSiblingInstallScript(targetPath, stagePath, launchConfigPath, request.Version)
-		if err != nil {
+		if err := stageIntoManagedSlot(stagePath, targetPath); err != nil {
 			_ = os.Remove(stagePath)
-			return Result{}, fmt.Errorf("create sibling installer helper: %w", err)
+			return Result{}, fmt.Errorf("install sibling agent: %w", err)
 		}
 
-		if err := launchUpdaterScript(scriptPath, request.UsePrivilegedHelper); err != nil {
-			_ = os.Remove(stagePath)
-			_ = os.Remove(scriptPath)
-			return Result{}, fmt.Errorf("launch sibling installer helper: %w", err)
+		if err := launchInstalledAgent(targetPath, launchConfigPath, request.Version); err != nil {
+			return Result{}, fmt.Errorf("launch sibling agent: %w", err)
 		}
 
 		return Result{
-			Message:         fmt.Sprintf("Update %s staged. %s installed alongside d1.", request.Version, request.NextDeviceID),
+			Message:         fmt.Sprintf("Update %s installed and launched alongside d1 as %s.", request.Version, request.NextDeviceID),
 			RestartRequired: false,
 		}, nil
 	}
@@ -437,7 +434,7 @@ func writeSiblingInstallScript(targetPath string, stagedPath string, launchConfi
 		"if exist \"%TARGET%\" del /f /q \"%TARGET%\" >nul 2>&1",
 		"move /Y \"%STAGED%\" \"%TARGET%\" >nul 2>&1",
 		"if errorlevel 1 goto fail",
-		"start \"\" /D \"%TARGET_DIR%\" /B \"%TARGET%\" --config \"%LAUNCH_CONFIG%\" --version \"%VERSION%\"",
+		"start \"\" /D \"%TARGET_DIR%\" /B \"%TARGET%\" --config \"%LAUNCH_CONFIG%\" --version \"%VERSION%\" --run-agent",
 		"del /f /q \"%~f0\" >nul 2>&1",
 		"exit /b 0",
 		":fail",
@@ -455,7 +452,7 @@ func writeSiblingInstallScript(targetPath string, stagedPath string, launchConfi
 }
 
 func prepareMigratedConfig(currentConfigPath string, nextDeviceID string, version string) (string, error) {
-	configPath, err := configPathForDeviceID(nextDeviceID)
+	configPath, err := configPathForSiblingDeviceID(currentConfigPath, nextDeviceID)
 	if err != nil {
 		return "", err
 	}
@@ -562,28 +559,51 @@ func stageIntoManagedSlot(stagePath string, targetPath string) error {
 	return nil
 }
 
+func launchInstalledAgent(targetPath string, cfgPath string, version string) error {
+	args := []string{"--config", cfgPath}
+	if strings.TrimSpace(version) != "" {
+		args = append(args, "--version", strings.TrimSpace(version))
+	}
+	args = append(args, "--run-agent")
+
+	cmd := exec.Command(targetPath, args...)
+	cmd.Dir = filepath.Dir(targetPath)
+	configureHiddenProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	return cmd.Process.Release()
+}
+
+func configPathForSiblingDeviceID(currentConfigPath string, deviceID string) (string, error) {
+	if derived, ok := deriveSiblingConfigPath(currentConfigPath, deviceID); ok {
+		return derived, nil
+	}
+
+	return configPathForDeviceID(deviceID)
+}
+
+func deriveSiblingConfigPath(currentConfigPath string, deviceID string) (string, bool) {
+	trimmed := strings.TrimSpace(currentConfigPath)
+	if trimmed == "" {
+		return "", false
+	}
+
+	currentDir := filepath.Dir(filepath.Clean(trimmed))
+	baseDir, ok := deriveManagedBaseDir(currentDir)
+	if !ok {
+		return "", false
+	}
+
+	return filepath.Join(baseDir, configDirectoryNameForDeviceID(deviceID), "config.json"), true
+}
+
 func configPathForDeviceID(deviceID string) (string, error) {
-	deviceClass := deviceConfigClass(deviceID)
+	configDir := configDirectoryNameForDeviceID(deviceID)
 	appData := strings.TrimSpace(os.Getenv("APPDATA"))
 	if appData != "" {
-		switch deviceClass {
-		case "t":
-			return filepath.Join(appData, "T1Agent", "config.json"), nil
-		case "se":
-			return filepath.Join(appData, "SE1Agent", "config.json"), nil
-		case "ds":
-			return filepath.Join(appData, "DS1Agent", "config.json"), nil
-		case "s":
-			return filepath.Join(appData, "S1Agent", "config.json"), nil
-		case "d":
-			return filepath.Join(appData, "D1Agent", "config.json"), nil
-		case "e":
-			return filepath.Join(appData, "E1Agent", "config.json"), nil
-		case "a":
-			return filepath.Join(appData, "A1Agent", "config.json"), nil
-		default:
-			return filepath.Join(appData, "CordycepsAgent", "config.json"), nil
-		}
+		return filepath.Join(appData, configDir, "config.json"), nil
 	}
 
 	homeDir, err := os.UserHomeDir()
@@ -591,48 +611,31 @@ func configPathForDeviceID(deviceID string) (string, error) {
 		return "", fmt.Errorf("resolve home directory: %w", err)
 	}
 
-	switch deviceClass {
-	case "t":
-		return filepath.Join(homeDir, ".t1-agent", "config.json"), nil
-	case "se":
-		return filepath.Join(homeDir, ".se1-agent", "config.json"), nil
-	case "ds":
-		return filepath.Join(homeDir, ".ds1-agent", "config.json"), nil
-	case "s":
-		return filepath.Join(homeDir, ".s1-agent", "config.json"), nil
-	case "d":
-		return filepath.Join(homeDir, ".d1-agent", "config.json"), nil
-	case "e":
-		return filepath.Join(homeDir, ".e1-agent", "config.json"), nil
-	case "a":
-		return filepath.Join(homeDir, ".a1-agent", "config.json"), nil
-	default:
-		return filepath.Join(homeDir, ".cordyceps-agent", "config.json"), nil
+	return filepath.Join(homeDir, hiddenConfigDirectoryNameForDeviceID(deviceID), "config.json"), nil
+}
+
+func installedExePathForSiblingDeviceID(paths resilience.Paths, deviceID string) (string, error) {
+	if derived, ok := deriveSiblingInstalledExePath(paths, deviceID); ok {
+		return derived, nil
 	}
+
+	return installedExePathForDeviceID(deviceID)
+}
+
+func deriveSiblingInstalledExePath(paths resilience.Paths, deviceID string) (string, bool) {
+	baseDir, ok := deriveManagedBaseDir(paths.InstallRoot)
+	if !ok {
+		return "", false
+	}
+
+	return filepath.Join(baseDir, installDirectoryNameForDeviceID(deviceID), executableNameForDeviceID(deviceID)), true
 }
 
 func installedExePathForDeviceID(deviceID string) (string, error) {
-	deviceClass := deviceConfigClass(deviceID)
+	installDir := installDirectoryNameForDeviceID(deviceID)
 	localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
 	if localAppData != "" {
-		switch deviceClass {
-		case "t":
-			return filepath.Join(localAppData, "T1Agent", "t1-agent.exe"), nil
-		case "se":
-			return filepath.Join(localAppData, "SE1Agent", "se1-agent.exe"), nil
-		case "ds":
-			return filepath.Join(localAppData, "DS1Agent", "ds1-agent.exe"), nil
-		case "s":
-			return filepath.Join(localAppData, "S1Agent", "s1-agent.exe"), nil
-		case "d":
-			return filepath.Join(localAppData, "D1Agent", "d1-agent.exe"), nil
-		case "e":
-			return filepath.Join(localAppData, "E1Agent", "e1-agent.exe"), nil
-		case "a":
-			return filepath.Join(localAppData, "A1Agent", "a1-agent.exe"), nil
-		default:
-			return filepath.Join(localAppData, "CordycepsAgent", "agent.exe"), nil
-		}
+		return filepath.Join(localAppData, installDir, executableNameForDeviceID(deviceID)), nil
 	}
 
 	homeDir, err := os.UserHomeDir()
@@ -640,24 +643,7 @@ func installedExePathForDeviceID(deviceID string) (string, error) {
 		return "", fmt.Errorf("resolve home directory: %w", err)
 	}
 
-	switch deviceClass {
-	case "t":
-		return filepath.Join(homeDir, ".t1-agent", "t1-agent"), nil
-	case "se":
-		return filepath.Join(homeDir, ".se1-agent", "se1-agent"), nil
-	case "ds":
-		return filepath.Join(homeDir, ".ds1-agent", "ds1-agent"), nil
-	case "s":
-		return filepath.Join(homeDir, ".s1-agent", "s1-agent"), nil
-	case "d":
-		return filepath.Join(homeDir, ".d1-agent", "d1-agent"), nil
-	case "e":
-		return filepath.Join(homeDir, ".e1-agent", "e1-agent"), nil
-	case "a":
-		return filepath.Join(homeDir, ".a1-agent", "a1-agent"), nil
-	default:
-		return filepath.Join(homeDir, ".cordyceps-agent", "agent"), nil
-	}
+	return filepath.Join(homeDir, hiddenConfigDirectoryNameForDeviceID(deviceID), hiddenExecutableNameForDeviceID(deviceID)), nil
 }
 
 func deviceConfigClass(value string) string {
@@ -680,6 +666,113 @@ func deviceConfigClass(value string) string {
 	default:
 		return "core"
 	}
+}
+
+func configDirectoryNameForDeviceID(deviceID string) string {
+	switch deviceConfigClass(deviceID) {
+	case "t":
+		return "T1Agent"
+	case "se":
+		return "SE1Agent"
+	case "ds":
+		return "DS1Agent"
+	case "s":
+		return "S1Agent"
+	case "d":
+		return "D1Agent"
+	case "e":
+		return "E1Agent"
+	case "a":
+		return "A1Agent"
+	default:
+		return "CordycepsAgent"
+	}
+}
+
+func hiddenConfigDirectoryNameForDeviceID(deviceID string) string {
+	switch deviceConfigClass(deviceID) {
+	case "t":
+		return ".t1-agent"
+	case "se":
+		return ".se1-agent"
+	case "ds":
+		return ".ds1-agent"
+	case "s":
+		return ".s1-agent"
+	case "d":
+		return ".d1-agent"
+	case "e":
+		return ".e1-agent"
+	case "a":
+		return ".a1-agent"
+	default:
+		return ".cordyceps-agent"
+	}
+}
+
+func installDirectoryNameForDeviceID(deviceID string) string {
+	return configDirectoryNameForDeviceID(deviceID)
+}
+
+func executableNameForDeviceID(deviceID string) string {
+	switch deviceConfigClass(deviceID) {
+	case "t":
+		return "t1-agent.exe"
+	case "se":
+		return "se1-agent.exe"
+	case "ds":
+		return "ds1-agent.exe"
+	case "s":
+		return "s1-agent.exe"
+	case "d":
+		return "d1-agent.exe"
+	case "e":
+		return "e1-agent.exe"
+	case "a":
+		return "a1-agent.exe"
+	default:
+		return "agent.exe"
+	}
+}
+
+func hiddenExecutableNameForDeviceID(deviceID string) string {
+	return strings.TrimSuffix(executableNameForDeviceID(deviceID), ".exe")
+}
+
+func deriveManagedBaseDir(path string) (string, bool) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", false
+	}
+
+	cleaned := filepath.Clean(trimmed)
+	if cleaned == "." || cleaned == string(filepath.Separator) {
+		return "", false
+	}
+
+	baseName := strings.TrimSpace(filepath.Base(cleaned))
+	if baseName == "" {
+		return "", false
+	}
+
+	if looksLikeManagedAgentDir(baseName) {
+		parent := filepath.Dir(cleaned)
+		if parent == "" || parent == cleaned {
+			return "", false
+		}
+		return parent, true
+	}
+
+	return cleaned, true
+}
+
+func looksLikeManagedAgentDir(name string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "" {
+		return false
+	}
+
+	return strings.Contains(normalized, "agent")
 }
 
 func shouldInstallSiblingAgent(nextDeviceID string) bool {

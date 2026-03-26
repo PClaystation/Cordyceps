@@ -1,9 +1,12 @@
 package updater
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
 )
 
 func TestDeviceConfigClass(t *testing.T) {
@@ -100,6 +103,7 @@ func TestConfigPathForDeviceIDWithoutAppData(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	t.Setenv("APPDATA", "")
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	testCases := []struct {
 		deviceID string
@@ -208,5 +212,62 @@ func TestShouldInstallSiblingAgent(t *testing.T) {
 		if got := shouldInstallSiblingAgent(tc.deviceID); got != tc.want {
 			t.Fatalf("shouldInstallSiblingAgent(%q)=%v, want %v", tc.deviceID, got, tc.want)
 		}
+	}
+}
+
+func TestConfigPathForSiblingDeviceIDPrefersCurrentManagedRoot(t *testing.T) {
+	systemAppData := filepath.Join(t.TempDir(), "system", "AppData", "Roaming")
+	t.Setenv("APPDATA", systemAppData)
+
+	userConfigPath := filepath.Join(t.TempDir(), "user", "AppData", "Roaming", "D1Agent", "config.json")
+	got, err := configPathForSiblingDeviceID(userConfigPath, "s1")
+	if err != nil {
+		t.Fatalf("configPathForSiblingDeviceID returned error: %v", err)
+	}
+
+	want := filepath.Join(filepath.Dir(filepath.Dir(userConfigPath)), "S1Agent", "config.json")
+	if got != want {
+		t.Fatalf("configPathForSiblingDeviceID()=%q, want %q", got, want)
+	}
+}
+
+func TestInstalledExePathForSiblingDeviceIDPrefersManagedInstallRoot(t *testing.T) {
+	systemLocalAppData := filepath.Join(t.TempDir(), "system", "AppData", "Local")
+	t.Setenv("LOCALAPPDATA", systemLocalAppData)
+
+	paths := resilience.Paths{
+		InstallRoot: filepath.Join(t.TempDir(), "user", "AppData", "Local", "D1Agent"),
+	}
+
+	got, err := installedExePathForSiblingDeviceID(paths, "ds1")
+	if err != nil {
+		t.Fatalf("installedExePathForSiblingDeviceID returned error: %v", err)
+	}
+
+	want := filepath.Join(filepath.Dir(paths.InstallRoot), "DS1Agent", "ds1-agent.exe")
+	if got != want {
+		t.Fatalf("installedExePathForSiblingDeviceID()=%q, want %q", got, want)
+	}
+}
+
+func TestWriteSiblingInstallScriptLaunchesRunAgent(t *testing.T) {
+	scriptPath, err := writeSiblingInstallScript(
+		filepath.Join(t.TempDir(), "S1Agent", "s1-agent.exe"),
+		filepath.Join(t.TempDir(), "staged", "s1-agent.exe"),
+		filepath.Join(t.TempDir(), "S1Agent", "config.json"),
+		"1.2.3",
+	)
+	if err != nil {
+		t.Fatalf("writeSiblingInstallScript returned error: %v", err)
+	}
+	defer func() { _ = os.Remove(scriptPath) }()
+
+	payload, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatalf("read script: %v", err)
+	}
+
+	if !strings.Contains(string(payload), "--run-agent") {
+		t.Fatalf("sibling install script did not launch with --run-agent:\n%s", string(payload))
 	}
 }

@@ -3,7 +3,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -92,9 +91,6 @@ func (service *guardianWindowsService) Execute(args []string, requests <-chan sv
 	changes <- svc.Status{State: svc.StartPending}
 	service.info(guardianEventIDServiceStarting, "d1 guardian Windows service is starting")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	guardianDone := make(chan error, 1)
 	go func() {
 		guardianDone <- runGuardian(service.opts)
@@ -112,7 +108,6 @@ func (service *guardianWindowsService) Execute(args []string, requests <-chan sv
 			case svc.Stop, svc.Shutdown:
 				service.info(guardianEventIDServiceStopping, "d1 guardian service stop requested")
 				changes <- svc.Status{State: svc.StopPending}
-				cancel()
 
 				if err := <-guardianDone; err != nil {
 					service.error(guardianEventIDServiceError, fmt.Sprintf("d1 guardian service stopped with error: %v", err))

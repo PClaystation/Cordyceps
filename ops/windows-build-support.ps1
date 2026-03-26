@@ -54,12 +54,26 @@ function New-CordycepsWindowsBuildResource {
   $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("cordyceps-winres-" + [guid]::NewGuid().ToString("N"))
   $null = New-Item -ItemType Directory -Path $tempRoot -Force
 
-  $iconPath = Join-Path $RepoRoot "ios/CordycepsRemote/CordycepsRemote/Assets.xcassets/AppIcon.appiconset/icon-1024.png"
+  $iconCandidates = @(
+    "ios/CordycepsRemote/CordycepsRemote/Assets.xcassets/AppIcon.appiconset/icon-60@2x.png",
+    "ios/CordycepsRemote/CordycepsRemote/Assets.xcassets/AppIcon.appiconset/icon-60@3x.png",
+    "ios/CordycepsRemote/CordycepsRemote/Assets.xcassets/AppIcon.appiconset/icon-1024.png"
+  )
+  $iconPath = ""
+  foreach ($candidate in $iconCandidates) {
+    $candidatePath = Join-Path $RepoRoot $candidate
+    if (Test-Path -LiteralPath $candidatePath) {
+      $iconPath = $candidatePath
+      break
+    }
+  }
   $iconGroup = [ordered]@{}
-  if (Test-Path -LiteralPath $iconPath) {
+  if (-not [string]::IsNullOrWhiteSpace($iconPath) -and (Test-Path -LiteralPath $iconPath)) {
+    $tempIconPath = Join-Path $tempRoot "icon-1024.png"
+    Copy-Item -LiteralPath $iconPath -Destination $tempIconPath -Force
     $iconGroup = [ordered]@{
       APP = [ordered]@{
-        "0000" = @([System.IO.Path]::GetFullPath($iconPath))
+        "0000" = @([System.IO.Path]::GetFileName($tempIconPath))
       }
     }
   }
@@ -120,7 +134,12 @@ function New-CordycepsWindowsBuildResource {
   }
 
   $winresJsonPath = Join-Path $tempRoot "winres.json"
-  $winres | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $winresJsonPath -Encoding UTF8
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText(
+    $winresJsonPath,
+    ($winres | ConvertTo-Json -Depth 12),
+    $utf8NoBom
+  )
 
   $resourcePrefix = Join-Path $packageFullPath "rsrc"
   $generatedSysoPath = Join-Path $packageFullPath "rsrc_windows_amd64.syso"

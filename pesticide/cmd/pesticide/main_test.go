@@ -64,3 +64,161 @@ func TestDS1DefinitionIncludesOptionalWindowsService(t *testing.T) {
 		t.Fatal(`ds1 service list is missing "CordycepsDS1"`)
 	}
 }
+
+func TestMatchProcessesMatchesRenamedBinaryInsideKnownRoot(t *testing.T) {
+	processes := []runningProcess{
+		{
+			PID:  4242,
+			Name: "totally-normal.exe",
+			Path: `C:\Users\Charlie\AppData\Local\T1Agent\renamed.exe`,
+		},
+	}
+
+	matches := matchProcesses(
+		processes,
+		[]string{"t1-agent.exe"},
+		[]string{"t1-agent"},
+		[]string{`C:\Users\Charlie\AppData\Local\T1Agent`},
+		nil,
+		0,
+		"",
+	)
+
+	if len(matches) != 1 {
+		t.Fatalf("matchProcesses() returned %d matches, want 1", len(matches))
+	}
+	if matches[0].PID != 4242 {
+		t.Fatalf("matchProcesses() matched PID %d, want 4242", matches[0].PID)
+	}
+	if matches[0].Reason != "known install/data root" {
+		t.Fatalf("matchProcesses() reason = %q, want %q", matches[0].Reason, "known install/data root")
+	}
+	if !matches[0].RemoveExecutable {
+		t.Fatal("matchProcesses() should allow deleting an executable matched by known root")
+	}
+}
+
+func TestMatchProcessesMatchesRenamedBinaryFromDiscoveredExecutablePath(t *testing.T) {
+	processes := []runningProcess{
+		{
+			PID:  5150,
+			Name: "svchost-helper.exe",
+			Path: `C:\ProgramData\CordycepsD1\bin\guardian-renamed.exe`,
+		},
+	}
+
+	matches := matchProcesses(
+		processes,
+		[]string{"d1-guardian.exe"},
+		[]string{"d1-guardian"},
+		nil,
+		[]string{`C:\ProgramData\CordycepsD1\bin\guardian-renamed.exe`},
+		0,
+		"",
+	)
+
+	if len(matches) != 1 {
+		t.Fatalf("matchProcesses() returned %d matches, want 1", len(matches))
+	}
+	if matches[0].PID != 5150 {
+		t.Fatalf("matchProcesses() matched PID %d, want 5150", matches[0].PID)
+	}
+	if matches[0].Reason != "discovered executable path" {
+		t.Fatalf("matchProcesses() reason = %q, want %q", matches[0].Reason, "discovered executable path")
+	}
+	if !matches[0].RemoveExecutable {
+		t.Fatal("matchProcesses() should allow deleting an executable matched by exact path")
+	}
+}
+
+func TestMatchProcessesMatchesRenamedBinaryFromEmbeddedMetadata(t *testing.T) {
+	processes := []runningProcess{
+		{
+			PID:             6060,
+			Name:            "runtimebroker.exe",
+			Path:            `D:\Random\renamed.exe`,
+			InternalName:    "se1-agent",
+			ProductName:     "Cordyceps SE1 Agent",
+			FileDescription: "Cordyceps SE1 USB-ready Windows agent",
+			Comments:        "Cordyceps Windows agent",
+		},
+	}
+
+	matches := matchProcesses(
+		processes,
+		[]string{"se1-agent.exe"},
+		[]string{"se1-agent"},
+		nil,
+		nil,
+		0,
+		"",
+	)
+
+	if len(matches) != 1 {
+		t.Fatalf("matchProcesses() returned %d matches, want 1", len(matches))
+	}
+	if matches[0].Reason != "embedded metadata" {
+		t.Fatalf("matchProcesses() reason = %q, want %q", matches[0].Reason, "embedded metadata")
+	}
+	if !matches[0].RemoveExecutable {
+		t.Fatal("matchProcesses() should allow deleting an executable matched by embedded metadata")
+	}
+}
+
+func TestMatchProcessesNameOnlyDoesNotDeleteExecutable(t *testing.T) {
+	processes := []runningProcess{
+		{
+			PID:  7001,
+			Name: "t1-agent.exe",
+			Path: `D:\Odd\Path\t1-agent.exe`,
+		},
+	}
+
+	matches := matchProcesses(
+		processes,
+		[]string{"t1-agent.exe"},
+		[]string{"t1-agent"},
+		nil,
+		nil,
+		0,
+		"",
+	)
+
+	if len(matches) != 1 {
+		t.Fatalf("matchProcesses() returned %d matches, want 1", len(matches))
+	}
+	if matches[0].Reason != "name" {
+		t.Fatalf("matchProcesses() reason = %q, want %q", matches[0].Reason, "name")
+	}
+	if matches[0].RemoveExecutable {
+		t.Fatal("matchProcesses() should not delete an executable matched only by name")
+	}
+}
+
+func TestMatchProcessesDoesNotMatchUnrelatedMetadata(t *testing.T) {
+	processes := []runningProcess{
+		{
+			PID:             8008,
+			Name:            "helper.exe",
+			Path:            `D:\Random\helper.exe`,
+			InternalName:    "helper",
+			ProductName:     "Cordyceps Pesticide",
+			FileDescription: "Cordyceps cleanup utility",
+			Comments:        "Cordyceps Windows agent",
+		},
+	}
+
+	matches := matchProcesses(
+		processes,
+		[]string{"t1-agent.exe"},
+		[]string{"t1-agent"},
+		nil,
+		nil,
+		0,
+		"",
+	)
+
+	if len(matches) != 0 {
+		t.Fatalf("matchProcesses() returned %d matches, want 0", len(matches))
+	}
+}

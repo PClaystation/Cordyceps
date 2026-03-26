@@ -4,13 +4,15 @@ Standalone Windows cleanup utility for known local Cordyceps/Jarvis agent artifa
 
 It is intentionally narrow. It only targets:
 
-- known agent process names
+- running processes that either use known agent process names, run from known agent install/data roots, match executable paths discovered from agent persistence, or carry embedded Cordyceps/Jarvis agent metadata
 - known scheduled task names
 - known Windows service names used by supported agent families
 - known `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` values
 - known `%LOCALAPPDATA%`, `%APPDATA%`, and `%PROGRAMDATA%` directories
 - updater and relaunch leftovers in `%TEMP%`
 - executable paths discovered from those exact tasks, services, run keys, and running agent processes
+
+For safety, pesticide only deletes an executable path automatically when that path is backed by a known install root, a persistence entry, or embedded agent metadata. A name-only process match is terminated, but its executable path is not blindly deleted.
 
 The current supported family scope is `agent`, `t1`, `s1`, `d1`, `ds1`, `se1`, `e1`, and `a1`.
 
@@ -36,6 +38,7 @@ Double-click use:
 
 - If you launch `cordyceps-pesticide.exe` with no arguments, it opens confirmation/result dialogs.
 - If no known artifacts are found, it tells you and exits.
+- If a terminal cleanup run finds nothing that qualifies, it reports that nothing matching Cordyceps/Jarvis was found and removes nothing.
 - If artifacts are found, it asks for confirmation, cleans them, then shows the result.
 
 Optional terminal use:
