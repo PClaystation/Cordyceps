@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -32,21 +33,20 @@ func TestD1DefinitionIncludesGuardianArtifacts(t *testing.T) {
 		"D1GuardianLogon",
 		"D1GuardianBoot",
 		"D1GuardianWatchdog",
-		"D1Drone1Logon",
-		"D1Drone1Boot",
-		"D1Drone1Watchdog",
-		"D1Drone3Logon",
-		"D1Drone3Boot",
-		"D1Drone3Watchdog",
-		"D1Drone4Logon",
-		"D1Drone4Boot",
-		"D1Drone4Watchdog",
-		"D1Drone5Logon",
-		"D1Drone5Boot",
-		"D1Drone5Watchdog",
 	} {
 		if !slices.Contains(def.TaskNames, taskName) {
 			t.Fatalf("d1 task list is missing %q", taskName)
+		}
+	}
+	for role := 1; role <= 16; role++ {
+		for _, taskName := range []string{
+			"D1Drone" + strconv.Itoa(role) + "Logon",
+			"D1Drone" + strconv.Itoa(role) + "Boot",
+			"D1Drone" + strconv.Itoa(role) + "Watchdog",
+		} {
+			if !slices.Contains(def.TaskNames, taskName) {
+				t.Fatalf("d1 task list is missing %q", taskName)
+			}
 		}
 	}
 
@@ -56,7 +56,13 @@ func TestD1DefinitionIncludesGuardianArtifacts(t *testing.T) {
 		}
 	}
 
-	for _, runValue := range []string{"D1Agent", "D1Guardian", "D1Heartbeat", "D1Drone1", "D1Drone2", "D1Drone4"} {
+	for _, runValue := range []string{"D1Agent", "D1Guardian", "D1Heartbeat"} {
+		if !slices.Contains(def.RunValueNames, runValue) {
+			t.Fatalf("d1 run value list is missing %q", runValue)
+		}
+	}
+	for role := 1; role <= 16; role++ {
+		runValue := "D1Drone" + strconv.Itoa(role)
 		if !slices.Contains(def.RunValueNames, runValue) {
 			t.Fatalf("d1 run value list is missing %q", runValue)
 		}
@@ -68,7 +74,8 @@ func TestD1DefinitionIncludesGuardianArtifacts(t *testing.T) {
 	if !slices.Contains(def.ProcessNames, "d1-heartbeat.exe") {
 		t.Fatal(`d1 process list is missing "d1-heartbeat.exe"`)
 	}
-	for _, processName := range []string{"d1-drone-1.exe", "d1-drone-2.exe", "d1-drone-3.exe", "d1-drone-4.exe", "d1-drone-5.exe"} {
+	for role := 1; role <= 16; role++ {
+		processName := "d1-drone-" + strconv.Itoa(role) + ".exe"
 		if !slices.Contains(def.ProcessNames, processName) {
 			t.Fatalf("d1 process list is missing %q", processName)
 		}

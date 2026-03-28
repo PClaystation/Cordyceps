@@ -81,8 +81,9 @@ $resolvedAgentExePath = Resolve-AgentExePath -requestedPath $AgentExePath -scrip
 $resolvedGuardianExePath = Resolve-AgentExePath -requestedPath $GuardianExePath -scriptRoot $scriptRoot -defaultExeName "d1-guardian.exe"
 
 $resolvedHeartbeatExePath = Resolve-AgentExePath -requestedPath $HeartbeatExePath -scriptRoot $scriptRoot -defaultExeName "d1-heartbeat.exe"
+$droneRoles = 1..16 | ForEach-Object { "$_" }
 $resolvedDroneExePaths = @{}
-foreach ($role in @("1", "2", "3", "4", "5")) {
+foreach ($role in $droneRoles) {
   $resolvedDroneExePaths[$role] = Resolve-DroneRoleExePath -requestedPath $DroneExePath -scriptRoot $scriptRoot -role $role
 }
 
@@ -92,29 +93,123 @@ $slotRoot = Join-Path $installRoot "slots\slot-a"
 $configPath = Join-Path $env:APPDATA "D1Agent\config.json"
 $configRoot = Split-Path -Parent $configPath
 
+function Get-DroneRoleNumber([string]$Role) {
+  $parsed = 0
+  if (-not [int]::TryParse($Role.Trim(), [ref]$parsed) -or $parsed -lt 1) {
+    return 1
+  }
+  return $parsed
+}
+
+function Get-DroneRoleKind([string]$Role) {
+  $roleNumber = Get-DroneRoleNumber $Role
+  if ($roleNumber -le $droneRoles.Count) {
+    return "$roleNumber"
+  }
+
+  $hash = [uint32]2166136261
+  foreach ($byte in [System.Text.Encoding]::ASCII.GetBytes("$roleNumber")) {
+    $hash = $hash -bxor [uint32]$byte
+    $hash = [uint32]((([uint64]$hash * [uint64]16777619) -band 0xffffffff))
+  }
+
+  return [string](($hash % [uint32]$droneRoles.Count) + 1)
+}
+
 function Get-DronePath([string]$Role, [bool]$Backup) {
-  switch ($Role) {
+  $normalizedRole = [string](Get-DroneRoleNumber $Role)
+  switch (Get-DroneRoleKind $Role) {
     "2" {
-      if ($Backup) { return Join-Path $programDataRoot "spool\mesh-2-backup\d1-drone-2.exe" }
-      return Join-Path $installRoot "support\mesh-2\d1-drone-2.exe"
+      if ($Backup) { return Join-Path $programDataRoot ("spool\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $installRoot ("support\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
     }
     "3" {
-      if ($Backup) { return Join-Path $installRoot "backup\mesh-3-backup\d1-drone-3.exe" }
-      return Join-Path $configRoot "drivers\mesh-3\d1-drone-3.exe"
+      if ($Backup) { return Join-Path $installRoot ("backup\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $configRoot ("drivers\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
     }
     "4" {
-      if ($Backup) { return Join-Path $configRoot "backup\mesh-4-backup\d1-drone-4.exe" }
-      return Join-Path $programDataRoot "broker\mesh-4\d1-drone-4.exe"
+      if ($Backup) { return Join-Path $configRoot ("backup\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $programDataRoot ("broker\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
     }
     "5" {
-      if ($Backup) { return Join-Path $programDataRoot "backup\mesh-5-backup\d1-drone-5.exe" }
-      return Join-Path $installRoot "cache\mesh-5\d1-drone-5.exe"
+      if ($Backup) { return Join-Path $programDataRoot ("backup\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $installRoot ("cache\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "6" {
+      if ($Backup) { return Join-Path $installRoot ("journals\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $configRoot ("spool\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "7" {
+      if ($Backup) { return Join-Path $configRoot ("telemetry\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $programDataRoot ("catalog\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "8" {
+      if ($Backup) { return Join-Path $programDataRoot ("staging\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $installRoot ("telemetry\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "9" {
+      if ($Backup) { return Join-Path $programDataRoot ("shadow\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $configRoot ("profiles\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "10" {
+      if ($Backup) { return Join-Path $installRoot ("restore\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $programDataRoot ("runtime\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "11" {
+      if ($Backup) { return Join-Path $configRoot ("vault\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $installRoot ("packages\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "12" {
+      if ($Backup) { return Join-Path $programDataRoot ("quarantine\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $configRoot ("plugins\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "13" {
+      if ($Backup) { return Join-Path $installRoot ("manifests\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $programDataRoot ("inventory\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "14" {
+      if ($Backup) { return Join-Path $configRoot ("snapshots\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $installRoot ("themes\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "15" {
+      if ($Backup) { return Join-Path $programDataRoot ("indices\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $configRoot ("modules\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+    }
+    "16" {
+      if ($Backup) { return Join-Path $installRoot ("coldstore\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $programDataRoot ("archive\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
     }
     default {
-      if ($Backup) { return Join-Path $configRoot "cache\mesh-1-backup\d1-drone-1.exe" }
-      return Join-Path $programDataRoot "svc-cache\mesh-1\d1-drone-1.exe"
+      if ($Backup) { return Join-Path $configRoot ("cache\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $programDataRoot ("svc-cache\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
     }
   }
+}
+
+function Get-DroneBackupPaths([string]$Role) {
+  $normalizedRole = [string](Get-DroneRoleNumber $Role)
+  $paths = @((Get-DronePath $Role $true))
+
+  switch (Get-DroneRoleKind $Role) {
+    "2" { $paths += (Join-Path $configRoot ("relay\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "3" { $paths += (Join-Path $programDataRoot ("relay\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "4" { $paths += (Join-Path $installRoot ("quarantine\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "5" { $paths += (Join-Path $configRoot ("ledger\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "6" { $paths += (Join-Path $programDataRoot ("journals\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "7" { $paths += (Join-Path $installRoot ("mirrors\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "8" { $paths += (Join-Path $configRoot ("staging\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "9" { $paths += (Join-Path $installRoot ("vault\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "10" { $paths += (Join-Path $configRoot ("restore\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "11" { $paths += (Join-Path $programDataRoot ("packages\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "12" { $paths += (Join-Path $installRoot ("plugins\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "13" { $paths += (Join-Path $configRoot ("inventory\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "14" { $paths += (Join-Path $programDataRoot ("themes\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "15" { $paths += (Join-Path $installRoot ("modules\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "16" { $paths += (Join-Path $configRoot ("archive\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    default { $paths += (Join-Path $installRoot ("shadow-cache\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+  }
+
+  return $paths | Select-Object -Unique
 }
 
 function Get-DroneTemplatePath([string]$Role) {
@@ -145,15 +240,19 @@ Copy-Item -LiteralPath $resolvedAgentExePath -Destination $installedExe -Force
 Copy-Item -LiteralPath $resolvedAgentExePath -Destination $fallbackExe -Force
 Copy-Item -LiteralPath $resolvedGuardianExePath -Destination $installedGuardian -Force
 Copy-Item -LiteralPath $resolvedHeartbeatExePath -Destination $installedHeartbeat -Force
-foreach ($role in @("1", "2", "3", "4", "5")) {
+foreach ($role in $droneRoles) {
   $installedDrone = Get-DronePath $role $false
-  $backupDrone = Get-DronePath $role $true
+  $backupDrones = @(Get-DroneBackupPaths $role)
   $templateDrone = Get-DroneTemplatePath $role
   New-Item -ItemType Directory -Path (Split-Path -Parent $installedDrone) -Force | Out-Null
-  New-Item -ItemType Directory -Path (Split-Path -Parent $backupDrone) -Force | Out-Null
+  foreach ($backupDrone in $backupDrones) {
+    New-Item -ItemType Directory -Path (Split-Path -Parent $backupDrone) -Force | Out-Null
+  }
   New-Item -ItemType Directory -Path (Split-Path -Parent $templateDrone) -Force | Out-Null
   Copy-Item -LiteralPath $resolvedDroneExePaths[$role] -Destination $installedDrone -Force
-  Copy-Item -LiteralPath $resolvedDroneExePaths[$role] -Destination $backupDrone -Force
+  foreach ($backupDrone in $backupDrones) {
+    Copy-Item -LiteralPath $resolvedDroneExePaths[$role] -Destination $backupDrone -Force
+  }
   Copy-Item -LiteralPath $resolvedDroneExePaths[$role] -Destination $templateDrone -Force
 }
 
@@ -162,7 +261,7 @@ New-Item -ItemType Directory -Path (Split-Path -Parent $coldSparePath) -Force | 
 Copy-Item -LiteralPath $resolvedDroneExePaths["1"] -Destination $coldSparePath -Force
 
 $trustedHashes = @()
-foreach ($role in @("1", "2", "3", "4", "5")) {
+foreach ($role in $droneRoles) {
   $trustedHashes += (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedDroneExePaths[$role]).Hash.ToLowerInvariant()
 }
 $trustedHashes = $trustedHashes | Sort-Object -Unique
@@ -241,7 +340,7 @@ if ($Foreground.IsPresent) {
   Start-Process -FilePath $installedHeartbeat -ArgumentList $heartbeatArgs -WindowStyle Hidden
 }
 
-foreach ($role in @("1", "2", "3", "4", "5")) {
+foreach ($role in $droneRoles) {
   $installedDrone = Get-DronePath $role $false
   $droneArgs = @(
     "--config", $configPath,

@@ -32,6 +32,13 @@ type RegistrationSpec struct {
 	LegacyTaskNames     []string
 }
 
+type RegistrationMode struct {
+	LogonTask    bool
+	BootTask     bool
+	WatchdogTask bool
+	RunKey       bool
+}
+
 func EnsureStartupRegistration(executablePath string) error {
 	return EnsureRegistration(newCurrentRegistrationSpec(executablePath))
 }
@@ -195,6 +202,99 @@ func RepairScheduledTaskRegistrationIfMissing(spec RegistrationSpec) error {
 	}
 
 	return nil
+}
+
+func EnsureRegistrationMode(spec RegistrationSpec, mode RegistrationMode) error {
+	return applyRegistrationMode(spec, mode, false)
+}
+
+func RepairRegistrationModeIfMissing(spec RegistrationSpec, mode RegistrationMode) error {
+	return applyRegistrationMode(spec, mode, true)
+}
+
+func applyRegistrationMode(spec RegistrationSpec, mode RegistrationMode, repairOnly bool) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	spec.Command = strings.TrimSpace(spec.Command)
+	if spec.Command == "" {
+		return fmt.Errorf("empty startup command")
+	}
+
+	if !mode.LogonTask && !mode.BootTask && !mode.WatchdogTask && !mode.RunKey {
+		return fmt.Errorf("empty registration mode")
+	}
+
+	registered := false
+	operationErrors := make([]string, 0, 4)
+
+	applyTask := func(enabled bool, taskName string, scheduleArgs []string, description string) {
+		if enabled {
+			if repairOnly {
+				exists, err := scheduledTaskExists(taskName)
+				if err != nil {
+					operationErrors = append(operationErrors, err.Error())
+					return
+				}
+				if exists {
+					registered = true
+					return
+				}
+			}
+
+			if err := ensureScheduledTask(taskName, spec.Command, scheduleArgs, description); err != nil {
+				operationErrors = append(operationErrors, err.Error())
+				return
+			}
+			registered = true
+			return
+		}
+
+		if err := deleteScheduledTask(taskName); err != nil {
+			operationErrors = append(operationErrors, err.Error())
+		}
+	}
+
+	applyTask(mode.LogonTask, spec.StartupName, []string{"/SC", "ONLOGON"}, spec.StartupDescription)
+	applyTask(mode.BootTask, spec.BootStartupName, []string{"/SC", "ONSTART"}, spec.BootDescription)
+	applyTask(mode.WatchdogTask, spec.WatchdogStartupName, []string{"/SC", "MINUTE", "/MO", "1"}, spec.WatchdogDescription)
+
+	if mode.RunKey {
+		if repairOnly {
+			exists, err := runKeyExists(spec.RunKeyName)
+			if err != nil {
+				operationErrors = append(operationErrors, err.Error())
+			} else if exists {
+				registered = true
+			} else if err := ensureRunKey(spec.RunKeyName, spec.Command); err != nil {
+				operationErrors = append(operationErrors, err.Error())
+			} else {
+				registered = true
+			}
+		} else if err := ensureRunKey(spec.RunKeyName, spec.Command); err != nil {
+			operationErrors = append(operationErrors, err.Error())
+		} else {
+			registered = true
+		}
+	} else if err := deleteRunKey(spec.RunKeyName); err != nil {
+		operationErrors = append(operationErrors, err.Error())
+	}
+
+	removeScheduledTasks(spec.LegacyTaskNames)
+
+	if repairOnly {
+		if len(operationErrors) > 0 {
+			return fmt.Errorf("repair startup launchers: %s", strings.Join(operationErrors, "; "))
+		}
+		return nil
+	}
+
+	if registered {
+		return nil
+	}
+
+	return fmt.Errorf("register startup launchers: %s", strings.Join(operationErrors, "; "))
 }
 
 func startupFolderLauncherPath(name string) (string, error) {

@@ -21,6 +21,27 @@ param(
 
   [string]$Drone5OutputPath = ".\dist\d1-drone-5.exe",
 
+  [string]$Drone6OutputPath = ".\dist\d1-drone-6.exe",
+
+  [string]$Drone7OutputPath = ".\dist\d1-drone-7.exe",
+
+  [string]$Drone8OutputPath = ".\dist\d1-drone-8.exe",
+
+  [string]$Drone9OutputPath = ".\dist\d1-drone-9.exe",
+
+  [string]$Drone10OutputPath = ".\dist\d1-drone-10.exe",
+
+  [string]$Drone11OutputPath = ".\dist\d1-drone-11.exe",
+
+  [string]$Drone12OutputPath = ".\dist\d1-drone-12.exe",
+
+  [string]$Drone13OutputPath = ".\dist\d1-drone-13.exe",
+
+
+  [string]$Drone15OutputPath = ".\dist\d1-drone-15.exe",
+
+  [string]$Drone16OutputPath = ".\dist\d1-drone-16.exe",
+
   [string]$Version = "0.1.0",
 
   [string]$CodeSigningThumbprint = "",
@@ -51,6 +72,17 @@ $drone2OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Dr
 $drone3OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone3OutputPath))
 $drone4OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone4OutputPath))
 $drone5OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone5OutputPath))
+$drone6OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone6OutputPath))
+$drone7OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone7OutputPath))
+$drone8OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone8OutputPath))
+$drone9OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone9OutputPath))
+$drone10OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone10OutputPath))
+$drone11OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone11OutputPath))
+$drone12OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone12OutputPath))
+$drone13OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone13OutputPath))
+$drone14OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone14OutputPath))
+$drone15OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone15OutputPath))
+$drone16OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $Drone16OutputPath))
 $outputDir = Split-Path -Parent $outputFullPath
 $guardianOutputDir = Split-Path -Parent $guardianOutputFullPath
 $heartbeatOutputDir = Split-Path -Parent $heartbeatOutputFullPath
@@ -59,7 +91,18 @@ $droneDirs = @(
   (Split-Path -Parent $drone2OutputFullPath),
   (Split-Path -Parent $drone3OutputFullPath),
   (Split-Path -Parent $drone4OutputFullPath),
-  (Split-Path -Parent $drone5OutputFullPath)
+  (Split-Path -Parent $drone5OutputFullPath),
+  (Split-Path -Parent $drone6OutputFullPath),
+  (Split-Path -Parent $drone7OutputFullPath),
+  (Split-Path -Parent $drone8OutputFullPath),
+  (Split-Path -Parent $drone9OutputFullPath),
+  (Split-Path -Parent $drone10OutputFullPath),
+  (Split-Path -Parent $drone11OutputFullPath),
+  (Split-Path -Parent $drone12OutputFullPath),
+  (Split-Path -Parent $drone13OutputFullPath),
+  (Split-Path -Parent $drone14OutputFullPath),
+  (Split-Path -Parent $drone15OutputFullPath),
+  (Split-Path -Parent $drone16OutputFullPath)
 )
 
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
@@ -120,7 +163,18 @@ $droneBuildMatrix = @(
   @{ Role = "2"; Output = $drone2OutputFullPath },
   @{ Role = "3"; Output = $drone3OutputFullPath },
   @{ Role = "4"; Output = $drone4OutputFullPath },
-  @{ Role = "5"; Output = $drone5OutputFullPath }
+  @{ Role = "5"; Output = $drone5OutputFullPath },
+  @{ Role = "6"; Output = $drone6OutputFullPath },
+  @{ Role = "7"; Output = $drone7OutputFullPath },
+  @{ Role = "8"; Output = $drone8OutputFullPath },
+  @{ Role = "9"; Output = $drone9OutputFullPath },
+  @{ Role = "10"; Output = $drone10OutputFullPath },
+  @{ Role = "11"; Output = $drone11OutputFullPath },
+  @{ Role = "12"; Output = $drone12OutputFullPath },
+  @{ Role = "13"; Output = $drone13OutputFullPath },
+  @{ Role = "14"; Output = $drone14OutputFullPath },
+  @{ Role = "15"; Output = $drone15OutputFullPath },
+  @{ Role = "16"; Output = $drone16OutputFullPath }
 )
 
 Push-Location $scriptRoot

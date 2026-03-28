@@ -37,7 +37,9 @@ func TestStageManagedCompanionsIfPresentSeedsManagedTargets(t *testing.T) {
 	for _, role := range resilience.DroneRoles() {
 		want := "drone-" + role
 		assertTestExecutablePayload(t, resilience.DroneExecutablePath(paths, role), want)
-		assertTestExecutablePayload(t, resilience.DroneBackupExecutablePath(paths, role), want)
+		for _, backupPath := range resilience.DroneBackupExecutablePaths(paths, role) {
+			assertTestExecutablePayload(t, backupPath, want)
+		}
 		assertTestExecutablePayload(t, resilience.DroneTemplatePath(paths, role), want)
 	}
 }

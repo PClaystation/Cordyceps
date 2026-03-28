@@ -58,9 +58,9 @@ func stageRestoreDroneArtifactsIfPresent(agentExecutablePath string, paths resil
 
 	destinations := []string{
 		resilience.DroneExecutablePath(paths, role),
-		resilience.DroneBackupExecutablePath(paths, role),
 		resilience.DroneTemplatePath(paths, role),
 	}
+	destinations = append(destinations, resilience.DroneBackupExecutablePaths(paths, role)...)
 	if resilience.NormalizeDroneRole(role) == resilience.DroneRole1 {
 		destinations = append(destinations, resilience.DroneColdSparePath(paths))
 	}

@@ -17,7 +17,7 @@ func ensureRestoreDronesPresentAndRunning(agentExecutablePath string, paths resi
 		return nil
 	}
 
-	targetCount := 5
+	targetCount := len(resilience.DroneRoles())
 	if cfg, err := config.Load(paths.ConfigPath); err == nil {
 		targetCount = config.NormalizeDroneTargetCount(cfg.DroneTargetCount)
 	}
@@ -33,15 +33,21 @@ func ensureRestoreDronesPresentAndRunning(agentExecutablePath string, paths resi
 
 func ensureRestoreDronePresentAndRunning(agentExecutablePath string, paths resilience.Paths, role string) error {
 	targetPath := resilience.DroneExecutablePath(paths, role)
-	backupPath := resilience.DroneBackupExecutablePath(paths, role)
+	backupPaths := resilience.DroneBackupExecutablePaths(paths, role)
 
 	liveMissing, err := resilience.MissingOrInvalidExecutable(targetPath)
 	if err != nil {
 		return err
 	}
-	backupMissing, err := resilience.MissingOrInvalidExecutable(backupPath)
-	if err != nil {
-		return err
+	backupMissing := false
+	for _, backupPath := range backupPaths {
+		missing, err := resilience.MissingOrInvalidExecutable(backupPath)
+		if err != nil {
+			return err
+		}
+		if missing {
+			backupMissing = true
+		}
 	}
 
 	sourcePath := ""
@@ -61,8 +67,17 @@ func ensureRestoreDronePresentAndRunning(agentExecutablePath string, paths resil
 		}
 	}
 	if backupMissing {
-		if err := resilience.CopyExecutable(sourcePath, backupPath); err != nil {
-			return fmt.Errorf("seed drone %s backup: %w", role, err)
+		for _, backupPath := range backupPaths {
+			missing, err := resilience.MissingOrInvalidExecutable(backupPath)
+			if err != nil {
+				return err
+			}
+			if !missing {
+				continue
+			}
+			if err := resilience.CopyExecutable(sourcePath, backupPath); err != nil {
+				return fmt.Errorf("seed drone %s backup %s: %w", role, backupPath, err)
+			}
 		}
 	}
 
@@ -94,10 +109,10 @@ func discoverRestoreDroneSource(agentExecutablePath string, paths resilience.Pat
 		filepath.Join(baseDir, "..", "d1drone", fileName),
 		filepath.Join(baseDir, "..", "d1drone", "d1-drone.exe"),
 		resilience.DroneExecutablePath(paths, normalizedRole),
-		resilience.DroneBackupExecutablePath(paths, normalizedRole),
 		resilience.DroneTemplatePath(paths, normalizedRole),
 		resilience.DroneColdSparePath(paths),
 	}
+	candidates = append(candidates, resilience.DroneBackupExecutablePaths(paths, normalizedRole)...)
 
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err == nil {

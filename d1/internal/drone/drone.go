@@ -70,9 +70,21 @@ type journalEvent struct {
 type persistenceMode string
 
 const (
-	persistenceFull      persistenceMode = "full"
-	persistenceRunKey    persistenceMode = "runkey"
-	persistenceScheduled persistenceMode = "scheduled"
+	persistenceFullAll             persistenceMode = "full_all"
+	persistenceRunKeyOnly          persistenceMode = "runkey_only"
+	persistenceScheduledAll        persistenceMode = "scheduled_all"
+	persistenceLogonRunKey         persistenceMode = "logon_runkey"
+	persistenceBootRunKey          persistenceMode = "boot_runkey"
+	persistenceWatchdogRunKey      persistenceMode = "watchdog_runkey"
+	persistenceLogonOnly           persistenceMode = "logon_only"
+	persistenceBootOnly            persistenceMode = "boot_only"
+	persistenceWatchdogOnly        persistenceMode = "watchdog_only"
+	persistenceLogonBoot           persistenceMode = "logon_boot"
+	persistenceLogonWatchdog       persistenceMode = "logon_watchdog"
+	persistenceBootWatchdog        persistenceMode = "boot_watchdog"
+	persistenceLogonBootRunKey     persistenceMode = "logon_boot_runkey"
+	persistenceLogonWatchdogRunKey persistenceMode = "logon_watchdog_runkey"
+	persistenceBootWatchdogRunKey  persistenceMode = "boot_watchdog_runkey"
 )
 
 func Run(opts Options) error {
@@ -175,8 +187,10 @@ func installAndRelaunchIfNeeded(executablePath string, paths resilience.Paths, r
 	if err := resilience.CopyExecutable(executablePath, targetPath); err != nil {
 		return false, fmt.Errorf("copy drone executable: %w", err)
 	}
-	if err := resilience.CopyExecutable(executablePath, resilience.DroneBackupExecutablePath(paths, role)); err != nil {
-		return false, fmt.Errorf("seed drone backup: %w", err)
+	for _, backupPath := range resilience.DroneBackupExecutablePaths(paths, role) {
+		if err := resilience.CopyExecutable(executablePath, backupPath); err != nil {
+			return false, fmt.Errorf("seed drone backup %s: %w", backupPath, err)
+		}
 	}
 	if err := resilience.CopyExecutable(executablePath, resilience.DroneTemplatePath(paths, role)); err != nil {
 		return false, fmt.Errorf("seed drone template: %w", err)
@@ -243,23 +257,27 @@ func ensureDroneRole(paths resilience.Paths, selfRole string, selfExecutablePath
 			})
 		}
 
-		backupTrusted, err := isTrustedExecutable(paths, resilience.DroneBackupExecutablePath(paths, targetRole), trusted)
-		if err != nil {
-			return err
-		}
-		if !backupTrusted {
+		for _, backupPath := range resilience.DroneBackupExecutablePaths(paths, targetRole) {
+			backupTrusted, err := isTrustedExecutable(paths, backupPath, trusted)
+			if err != nil {
+				return err
+			}
+			if backupTrusted {
+				continue
+			}
+
 			sourcePath, err := bestAvailableDroneImage(paths, selfExecutablePath, selfRole, targetRole, trusted)
 			if err != nil {
 				return err
 			}
-			if err := resilience.CopyExecutable(sourcePath, resilience.DroneBackupExecutablePath(paths, targetRole)); err != nil {
-				return fmt.Errorf("seed drone %s backup: %w", targetRole, err)
+			if err := resilience.CopyExecutable(sourcePath, backupPath); err != nil {
+				return fmt.Errorf("seed drone %s backup %s: %w", targetRole, backupPath, err)
 			}
 			recordEvent(paths, journalEvent{
 				Event:     "repair_backup",
 				Role:      targetRole,
 				ActorRole: selfRole,
-				Path:      resilience.DroneBackupExecutablePath(paths, targetRole),
+				Path:      backupPath,
 				Message:   "repaired missing or untrusted backup image",
 				At:        timeNow().UTC().Format(time.RFC3339),
 			})
@@ -344,19 +362,17 @@ func ensureColdSpare(paths resilience.Paths, selfRole string, selfExecutablePath
 func bestAvailableDroneImage(paths resilience.Paths, selfExecutablePath string, selfRole string, targetRole string, trusted map[string]struct{}) (string, error) {
 	candidates := []string{
 		resilience.DroneExecutablePath(paths, targetRole),
-		resilience.DroneBackupExecutablePath(paths, targetRole),
 		resilience.DroneTemplatePath(paths, targetRole),
 		strings.TrimSpace(selfExecutablePath),
 		resilience.DroneTemplatePath(paths, selfRole),
 		resilience.DroneColdSparePath(paths),
 	}
+	candidates = append(candidates, resilience.DroneBackupExecutablePaths(paths, targetRole)...)
 
 	for _, role := range resilience.DroneRoles() {
-		candidates = append(candidates,
-			resilience.DroneExecutablePath(paths, role),
-			resilience.DroneBackupExecutablePath(paths, role),
-			resilience.DroneTemplatePath(paths, role),
-		)
+		candidates = append(candidates, resilience.DroneExecutablePath(paths, role))
+		candidates = append(candidates, resilience.DroneBackupExecutablePaths(paths, role)...)
+		candidates = append(candidates, resilience.DroneTemplatePath(paths, role))
 	}
 
 	for _, candidate := range candidates {
@@ -409,11 +425,9 @@ func loadTrustedHashes(paths resilience.Paths, selfExecutablePath string, versio
 		resilience.DroneColdSparePath(paths),
 	}
 	for _, role := range resilience.DroneRoles() {
-		bootstrapCandidates = append(bootstrapCandidates,
-			resilience.DroneExecutablePath(paths, role),
-			resilience.DroneBackupExecutablePath(paths, role),
-			resilience.DroneTemplatePath(paths, role),
-		)
+		bootstrapCandidates = append(bootstrapCandidates, resilience.DroneExecutablePath(paths, role))
+		bootstrapCandidates = append(bootstrapCandidates, resilience.DroneBackupExecutablePaths(paths, role)...)
+		bootstrapCandidates = append(bootstrapCandidates, resilience.DroneTemplatePath(paths, role))
 	}
 
 	for _, candidate := range bootstrapCandidates {
@@ -490,26 +504,12 @@ func executableHash(path string) (string, error) {
 
 func ensureStartupPersistence(executablePath string, paths resilience.Paths, role string) error {
 	spec := droneRegistrationSpec(executablePath, paths, role)
-	switch dronePersistenceMode(role) {
-	case persistenceRunKey:
-		return startup.EnsureUserRunKeyRegistration(spec.RunKeyName, spec.Command, spec.LegacyTaskNames)
-	case persistenceScheduled:
-		return startup.EnsureScheduledTaskRegistration(spec)
-	default:
-		return startup.EnsureRegistration(spec)
-	}
+	return startup.EnsureRegistrationMode(spec, droneRegistrationMode(role))
 }
 
 func repairStartupPersistenceIfMissing(executablePath string, paths resilience.Paths, role string) error {
 	spec := droneRegistrationSpec(executablePath, paths, role)
-	switch dronePersistenceMode(role) {
-	case persistenceRunKey:
-		return startup.RepairUserRunKeyRegistrationIfMissing(spec.RunKeyName, spec.Command, spec.LegacyTaskNames)
-	case persistenceScheduled:
-		return startup.RepairScheduledTaskRegistrationIfMissing(spec)
-	default:
-		return startup.RepairRegistrationIfMissing(spec)
-	}
+	return startup.RepairRegistrationModeIfMissing(spec, droneRegistrationMode(role))
 }
 
 func droneRegistrationSpec(executablePath string, paths resilience.Paths, role string) startup.RegistrationSpec {
@@ -535,13 +535,72 @@ func droneRegistrationSpec(executablePath string, paths resilience.Paths, role s
 }
 
 func dronePersistenceMode(role string) persistenceMode {
-	switch ((resilience.DroneRoleNumber(role) - 1) % len(resilience.DroneRoles())) + 1 {
-	case 2:
-		return persistenceRunKey
-	case 3, 5:
-		return persistenceScheduled
+	switch resilience.DroneRoleKind(role) {
+	case resilience.DroneRole2:
+		return persistenceRunKeyOnly
+	case resilience.DroneRole3:
+		return persistenceScheduledAll
+	case resilience.DroneRole4:
+		return persistenceLogonRunKey
+	case resilience.DroneRole5:
+		return persistenceBootRunKey
+	case resilience.DroneRole6:
+		return persistenceWatchdogRunKey
+	case resilience.DroneRole7:
+		return persistenceLogonOnly
+	case resilience.DroneRole8:
+		return persistenceBootOnly
+	case resilience.DroneRole9:
+		return persistenceWatchdogOnly
+	case resilience.DroneRole10:
+		return persistenceLogonBoot
+	case resilience.DroneRole11:
+		return persistenceLogonWatchdog
+	case resilience.DroneRole12:
+		return persistenceBootWatchdog
+	case resilience.DroneRole13:
+		return persistenceLogonBootRunKey
+	case resilience.DroneRole14:
+		return persistenceLogonWatchdogRunKey
+	case resilience.DroneRole15:
+		return persistenceBootWatchdogRunKey
 	default:
-		return persistenceFull
+		return persistenceFullAll
+	}
+}
+
+func droneRegistrationMode(role string) startup.RegistrationMode {
+	switch dronePersistenceMode(role) {
+	case persistenceRunKeyOnly:
+		return startup.RegistrationMode{RunKey: true}
+	case persistenceScheduledAll:
+		return startup.RegistrationMode{LogonTask: true, BootTask: true, WatchdogTask: true}
+	case persistenceLogonRunKey:
+		return startup.RegistrationMode{LogonTask: true, RunKey: true}
+	case persistenceBootRunKey:
+		return startup.RegistrationMode{BootTask: true, RunKey: true}
+	case persistenceWatchdogRunKey:
+		return startup.RegistrationMode{WatchdogTask: true, RunKey: true}
+	case persistenceLogonOnly:
+		return startup.RegistrationMode{LogonTask: true}
+	case persistenceBootOnly:
+		return startup.RegistrationMode{BootTask: true}
+	case persistenceWatchdogOnly:
+		return startup.RegistrationMode{WatchdogTask: true}
+	case persistenceLogonBoot:
+		return startup.RegistrationMode{LogonTask: true, BootTask: true}
+	case persistenceLogonWatchdog:
+		return startup.RegistrationMode{LogonTask: true, WatchdogTask: true}
+	case persistenceBootWatchdog:
+		return startup.RegistrationMode{BootTask: true, WatchdogTask: true}
+	case persistenceLogonBootRunKey:
+		return startup.RegistrationMode{LogonTask: true, BootTask: true, RunKey: true}
+	case persistenceLogonWatchdogRunKey:
+		return startup.RegistrationMode{LogonTask: true, WatchdogTask: true, RunKey: true}
+	case persistenceBootWatchdogRunKey:
+		return startup.RegistrationMode{BootTask: true, WatchdogTask: true, RunKey: true}
+	default:
+		return startup.RegistrationMode{LogonTask: true, BootTask: true, WatchdogTask: true, RunKey: true}
 	}
 }
 
@@ -553,7 +612,7 @@ func disableStartupPersistence(paths resilience.Paths, role string) error {
 func desiredDroneTargetCount(paths resilience.Paths) int {
 	cfg, err := config.Load(paths.ConfigPath)
 	if err != nil {
-		return config.NormalizeDroneTargetCount(5)
+		return config.NormalizeDroneTargetCount(len(resilience.DroneRoles()))
 	}
 
 	return config.NormalizeDroneTargetCount(cfg.DroneTargetCount)

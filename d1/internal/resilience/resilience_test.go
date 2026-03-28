@@ -53,7 +53,24 @@ func TestOtherSlot(t *testing.T) {
 
 func TestDroneRoles(t *testing.T) {
 	got := DroneRoles()
-	want := []string{DroneRole1, DroneRole2, DroneRole3, DroneRole4, DroneRole5}
+	want := []string{
+		DroneRole1,
+		DroneRole2,
+		DroneRole3,
+		DroneRole4,
+		DroneRole5,
+		DroneRole6,
+		DroneRole7,
+		DroneRole8,
+		DroneRole9,
+		DroneRole10,
+		DroneRole11,
+		DroneRole12,
+		DroneRole13,
+		DroneRole14,
+		DroneRole15,
+		DroneRole16,
+	}
 	if len(got) != len(want) {
 		t.Fatalf("len(DroneRoles())=%d, want %d", len(got), len(want))
 	}
@@ -65,8 +82,8 @@ func TestDroneRoles(t *testing.T) {
 }
 
 func TestDroneRolesUpTo(t *testing.T) {
-	got := DroneRolesUpTo(8)
-	want := []string{"1", "2", "3", "4", "5", "6", "7", "8"}
+	got := DroneRolesUpTo(16)
+	want := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"}
 	if len(got) != len(want) {
 		t.Fatalf("len(DroneRolesUpTo())=%d, want %d", len(got), len(want))
 	}
@@ -103,11 +120,45 @@ func TestDroneExecutablePaths(t *testing.T) {
 	if got := DroneBackupExecutablePath(paths, DroneRole5); got != filepath.Join(paths.ProgramDataRoot, "backup", "mesh-5-backup", "d1-drone-5.exe") {
 		t.Fatalf("DroneBackupExecutablePath(5)=%q", got)
 	}
-	if got := DroneExecutablePath(paths, "8"); got != filepath.Join(filepath.Dir(paths.ConfigPath), "drivers", "mesh-8", "d1-drone-8.exe") {
+	if got := DroneExecutablePath(paths, DroneRole6); got != filepath.Join(filepath.Dir(paths.ConfigPath), "spool", "mesh-6", "d1-drone-6.exe") {
+		t.Fatalf("DroneExecutablePath(6)=%q", got)
+	}
+	if got := DroneExecutablePath(paths, DroneRole8); got != filepath.Join(paths.InstallRoot, "telemetry", "mesh-8", "d1-drone-8.exe") {
 		t.Fatalf("DroneExecutablePath(8)=%q", got)
 	}
-	if got := DroneBackupExecutablePath(paths, "10"); got != filepath.Join(paths.ProgramDataRoot, "backup", "mesh-10-backup", "d1-drone-10.exe") {
-		t.Fatalf("DroneBackupExecutablePath(10)=%q", got)
+	if got := DroneExecutablePath(paths, DroneRole10); got != filepath.Join(paths.ProgramDataRoot, "runtime", "mesh-10", "d1-drone-10.exe") {
+		t.Fatalf("DroneExecutablePath(10)=%q", got)
+	}
+	if got := DroneExecutablePath(paths, DroneRole12); got != filepath.Join(filepath.Dir(paths.ConfigPath), "plugins", "mesh-12", "d1-drone-12.exe") {
+		t.Fatalf("DroneExecutablePath(12)=%q", got)
+	}
+	if got := DroneExecutablePath(paths, DroneRole16); got != filepath.Join(paths.ProgramDataRoot, "archive", "mesh-16", "d1-drone-16.exe") {
+		t.Fatalf("DroneExecutablePath(16)=%q", got)
+	}
+	if got := DroneBackupExecutablePath(paths, DroneRole7); got != filepath.Join(filepath.Dir(paths.ConfigPath), "telemetry", "mesh-7-backup", "d1-drone-7.exe") {
+		t.Fatalf("DroneBackupExecutablePath(7)=%q", got)
+	}
+	if got := DroneBackupExecutablePath(paths, DroneRole8); got != filepath.Join(paths.ProgramDataRoot, "staging", "mesh-8-backup", "d1-drone-8.exe") {
+		t.Fatalf("DroneBackupExecutablePath(8)=%q", got)
+	}
+	if got := DroneBackupExecutablePath(paths, DroneRole11); got != filepath.Join(filepath.Dir(paths.ConfigPath), "vault", "mesh-11-backup", "d1-drone-11.exe") {
+		t.Fatalf("DroneBackupExecutablePath(11)=%q", got)
+	}
+	if got := DroneBackupExecutablePath(paths, DroneRole14); got != filepath.Join(filepath.Dir(paths.ConfigPath), "snapshots", "mesh-14-backup", "d1-drone-14.exe") {
+		t.Fatalf("DroneBackupExecutablePath(14)=%q", got)
+	}
+	if got := DroneBackupExecutablePath(paths, DroneRole16); got != filepath.Join(paths.InstallRoot, "coldstore", "mesh-16-backup", "d1-drone-16.exe") {
+		t.Fatalf("DroneBackupExecutablePath(16)=%q", got)
+	}
+	backupPaths := DroneBackupExecutablePaths(paths, DroneRole9)
+	if len(backupPaths) != 2 {
+		t.Fatalf("len(DroneBackupExecutablePaths(9))=%d, want 2", len(backupPaths))
+	}
+	if backupPaths[0] != filepath.Join(paths.ProgramDataRoot, "shadow", "mesh-9-backup", "d1-drone-9.exe") {
+		t.Fatalf("DroneBackupExecutablePaths(9)[0]=%q", backupPaths[0])
+	}
+	if backupPaths[1] != filepath.Join(paths.InstallRoot, "vault", "mesh-9-backup", "d1-drone-9.exe") {
+		t.Fatalf("DroneBackupExecutablePaths(9)[1]=%q", backupPaths[1])
 	}
 	if got := DroneTemplatePath(paths, DroneRole2); got != filepath.Join(paths.ProgramDataRoot, "templates", "mesh-2", "d1-drone-2.exe") {
 		t.Fatalf("DroneTemplatePath(2)=%q", got)
@@ -139,5 +190,22 @@ func TestDroneExecutablePaths(t *testing.T) {
 	rolloutPaths := DroneRolloutPolicyPaths(paths)
 	if len(rolloutPaths) != 3 {
 		t.Fatalf("len(DroneRolloutPolicyPaths())=%d", len(rolloutPaths))
+	}
+}
+
+func TestDroneRoleKindUsesStablePseudoRandomOverflowAssignment(t *testing.T) {
+	gotFirst := DroneRoleKind("17")
+	gotSecond := DroneRoleKind("17")
+	if gotFirst != gotSecond {
+		t.Fatalf("DroneRoleKind(17) changed between calls: %q vs %q", gotFirst, gotSecond)
+	}
+
+	bucket := DroneRoleNumber(gotFirst)
+	if bucket < 1 || bucket > len(DroneRoles()) {
+		t.Fatalf("DroneRoleKind(17)=%q, want canonical role within 1..%d", gotFirst, len(DroneRoles()))
+	}
+
+	if gotFirst == NormalizeDroneRole("17") {
+		t.Fatalf("DroneRoleKind(17)=%q, want overflow role to map to a canonical kind", gotFirst)
 	}
 }

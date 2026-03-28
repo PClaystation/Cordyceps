@@ -78,11 +78,15 @@ func TestEnsureDroneRoleSeedsImagesAndLaunchesStoppedRole(t *testing.T) {
 
 	for _, path := range []string{
 		resilience.DroneExecutablePath(paths, resilience.DroneRole4),
-		resilience.DroneBackupExecutablePath(paths, resilience.DroneRole4),
 		resilience.DroneTemplatePath(paths, resilience.DroneRole4),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected seeded artifact at %s: %v", path, err)
+		}
+	}
+	for _, backupPath := range resilience.DroneBackupExecutablePaths(paths, resilience.DroneRole4) {
+		if _, err := os.Stat(backupPath); err != nil {
+			t.Fatalf("expected seeded backup artifact at %s: %v", backupPath, err)
 		}
 	}
 	if len(launchedRoles) != 1 || launchedRoles[0] != resilience.DroneRole4 {
@@ -147,6 +151,36 @@ func TestEnsureColdSpareSeedsDormantCopy(t *testing.T) {
 	}
 	if _, err := os.Stat(resilience.DroneColdSparePath(paths)); err != nil {
 		t.Fatalf("cold spare missing: %v", err)
+	}
+}
+
+func TestDronePersistenceModeFollowsAssignedRoleKind(t *testing.T) {
+	for role, want := range map[string]persistenceMode{
+		resilience.DroneRole1:  persistenceFullAll,
+		resilience.DroneRole2:  persistenceRunKeyOnly,
+		resilience.DroneRole3:  persistenceScheduledAll,
+		resilience.DroneRole4:  persistenceLogonRunKey,
+		resilience.DroneRole5:  persistenceBootRunKey,
+		resilience.DroneRole6:  persistenceWatchdogRunKey,
+		resilience.DroneRole7:  persistenceLogonOnly,
+		resilience.DroneRole8:  persistenceBootOnly,
+		resilience.DroneRole9:  persistenceWatchdogOnly,
+		resilience.DroneRole10: persistenceLogonBoot,
+		resilience.DroneRole11: persistenceLogonWatchdog,
+		resilience.DroneRole12: persistenceBootWatchdog,
+		resilience.DroneRole13: persistenceLogonBootRunKey,
+		resilience.DroneRole14: persistenceLogonWatchdogRunKey,
+		resilience.DroneRole15: persistenceBootWatchdogRunKey,
+		resilience.DroneRole16: persistenceFullAll,
+	} {
+		if got := dronePersistenceMode(role); got != want {
+			t.Fatalf("dronePersistenceMode(%s)=%q, want %q", role, got, want)
+		}
+	}
+
+	overflowRole := "17"
+	if got, want := dronePersistenceMode(overflowRole), dronePersistenceMode(resilience.DroneRoleKind(overflowRole)); got != want {
+		t.Fatalf("dronePersistenceMode(%s)=%q, want %q from assigned kind %s", overflowRole, got, want, resilience.DroneRoleKind(overflowRole))
 	}
 }
 
