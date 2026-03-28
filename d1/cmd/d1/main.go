@@ -223,12 +223,18 @@ func runAgentHost(ctx context.Context, opts agentOptions, paths resilience.Paths
 	}()
 
 	ensureStartup := executableResolved && allowStartup && opts.startup
-	if ensureStartup {
-		if err := ensureGuardianPresentAndRunning(executablePath, paths); err != nil {
-			log.Printf("warning: guardian launch failed: %v", err)
+	ensureCompanions := executableResolved && opts.startup
+	if ensureCompanions {
+		if allowStartup {
+			if err := ensureGuardianPresentAndRunning(executablePath, paths); err != nil {
+				log.Printf("warning: guardian launch failed: %v", err)
+			}
 		}
 		// The heartbeat companion is intentionally standalone after deployment.
 		// It owns its own startup registration and only reports liveness upstream.
+		if err := ensureHeartbeatPresentAndRunning(executablePath, paths); err != nil {
+			log.Printf("warning: heartbeat companion launch failed: %v", err)
+		}
 		if err := ensureRestoreDronesPresentAndRunning(executablePath, paths); err != nil {
 			log.Printf("warning: restore drone launch failed: %v", err)
 		}
@@ -904,6 +910,12 @@ func installAndRelaunchIfNeeded(
 
 	if err := resilience.CopyExecutable(executablePath, installedPath); err != nil {
 		return false, err
+	}
+	if err := resilience.CopyExecutable(executablePath, resilience.FallbackAgentPath(paths)); err != nil {
+		log.Printf("warning: seed fallback agent failed: %v", err)
+	}
+	if err := stageManagedCompanionsIfPresent(executablePath, paths); err != nil {
+		log.Printf("warning: stage managed companions failed: %v", err)
 	}
 
 	relaunchPathArgs := relaunchArgs(args)

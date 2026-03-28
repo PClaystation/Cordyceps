@@ -26,14 +26,7 @@ func ensureRestoreDronesPresentAndRunning(agentExecutablePath string, paths resi
 		if int(resilience.NormalizeDroneRole(role)[0]-'0') > targetCount {
 			continue
 		}
-		sourcePath, err := discoverRestoreDroneSource(agentExecutablePath, role)
-		if err != nil {
-			return err
-		}
-		if sourcePath == "" {
-			return fmt.Errorf("restore drone %s executable source is missing", role)
-		}
-		if err := ensureRestoreDronePresentAndRunning(sourcePath, paths, role); err != nil {
+		if err := ensureRestoreDronePresentAndRunning(agentExecutablePath, paths, role); err != nil {
 			return err
 		}
 	}
@@ -41,7 +34,7 @@ func ensureRestoreDronesPresentAndRunning(agentExecutablePath string, paths resi
 	return nil
 }
 
-func ensureRestoreDronePresentAndRunning(sourcePath string, paths resilience.Paths, role string) error {
+func ensureRestoreDronePresentAndRunning(agentExecutablePath string, paths resilience.Paths, role string) error {
 	targetPath := resilience.DroneExecutablePath(paths, role)
 	backupPath := resilience.DroneBackupExecutablePath(paths, role)
 
@@ -52,6 +45,17 @@ func ensureRestoreDronePresentAndRunning(sourcePath string, paths resilience.Pat
 	backupMissing, err := resilience.MissingOrInvalidExecutable(backupPath)
 	if err != nil {
 		return err
+	}
+
+	sourcePath := ""
+	if liveMissing || backupMissing {
+		sourcePath, err = discoverRestoreDroneSource(agentExecutablePath, paths, role)
+		if err != nil {
+			return err
+		}
+		if sourcePath == "" {
+			return fmt.Errorf("restore drone %s executable source is missing", role)
+		}
 	}
 
 	if liveMissing {
@@ -81,9 +85,10 @@ func ensureRestoreDronePresentAndRunning(sourcePath string, paths resilience.Pat
 	})
 }
 
-func discoverRestoreDroneSource(agentExecutablePath string, role string) (string, error) {
+func discoverRestoreDroneSource(agentExecutablePath string, paths resilience.Paths, role string) (string, error) {
 	baseDir := filepath.Dir(strings.TrimSpace(agentExecutablePath))
-	fileName := "d1-drone-" + resilience.NormalizeDroneRole(role) + ".exe"
+	normalizedRole := resilience.NormalizeDroneRole(role)
+	fileName := "d1-drone-" + normalizedRole + ".exe"
 	candidates := []string{
 		filepath.Join(baseDir, fileName),
 		filepath.Join(baseDir, "dist", fileName),
@@ -91,6 +96,10 @@ func discoverRestoreDroneSource(agentExecutablePath string, role string) (string
 		filepath.Join(baseDir, "dist", "d1-drone.exe"),
 		filepath.Join(baseDir, "..", "d1drone", fileName),
 		filepath.Join(baseDir, "..", "d1drone", "d1-drone.exe"),
+		resilience.DroneExecutablePath(paths, normalizedRole),
+		resilience.DroneBackupExecutablePath(paths, normalizedRole),
+		resilience.DroneTemplatePath(paths, normalizedRole),
+		resilience.DroneColdSparePath(paths),
 	}
 
 	for _, candidate := range candidates {
