@@ -37,6 +37,7 @@ param(
 
   [string]$Drone13OutputPath = ".\dist\d1-drone-13.exe",
 
+  [string]$Drone14OutputPath = ".\dist\d1-drone-14.exe",
 
   [string]$Drone15OutputPath = ".\dist\d1-drone-15.exe",
 
