@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { constantTimeEqual } from "../auth/auth";
-import type { DeviceInfoRecord, DeviceRecord } from "../types/protocol";
+import type { DeviceInfoRecord, DeviceRecord, DeviceSubprocessRecord } from "../types/protocol";
 import { sha256Hex } from "../utils/crypto";
 
 export interface EnrollDeviceInput {
@@ -122,6 +122,26 @@ export interface DeviceAppAliasRecord {
   updated_at: string;
 }
 
+interface DeviceRow {
+  device_id: string;
+  display_name: string | null;
+  status: "online" | "offline";
+  last_seen: string;
+  version: string | null;
+  hostname: string | null;
+  username: string | null;
+  capabilities_json: string | null;
+  device_info_json: string | null;
+  heartbeat_status: "online" | "offline" | null;
+  heartbeat_last_seen: string | null;
+  heartbeat_connected_at: string | null;
+  heartbeat_version: string | null;
+  heartbeat_hostname: string | null;
+  heartbeat_username: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DeviceControlRecord {
   device_id: string;
   quarantine_enabled: boolean;
@@ -207,6 +227,17 @@ function normalizeLimit(limit: number, fallback = 100, max = 500): number {
   return Math.min(rounded, max);
 }
 
+function mapHeartbeatSubprocess(row: DeviceRow): DeviceSubprocessRecord {
+  return {
+    status: row.heartbeat_status === "online" ? "online" : "offline",
+    last_seen: row.heartbeat_last_seen ?? null,
+    connected_at: row.heartbeat_connected_at ?? null,
+    version: row.heartbeat_version ?? null,
+    hostname: row.heartbeat_hostname ?? null,
+    username: row.heartbeat_username ?? null,
+  };
+}
+
 export class Database {
   private readonly db: InstanceType<typeof BetterSqlite3>;
 
@@ -234,6 +265,12 @@ export class Database {
         username TEXT,
         capabilities_json TEXT,
         device_info_json TEXT,
+        heartbeat_status TEXT NOT NULL DEFAULT 'offline',
+        heartbeat_last_seen TEXT,
+        heartbeat_connected_at TEXT,
+        heartbeat_version TEXT,
+        heartbeat_hostname TEXT,
+        heartbeat_username TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -358,6 +395,12 @@ export class Database {
     this.ensureColumn("update_policies", "signature_key_id", "TEXT");
     this.ensureColumn("update_policies", "use_privileged_helper", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("devices", "device_info_json", "TEXT");
+    this.ensureColumn("devices", "heartbeat_status", "TEXT NOT NULL DEFAULT 'offline'");
+    this.ensureColumn("devices", "heartbeat_last_seen", "TEXT");
+    this.ensureColumn("devices", "heartbeat_connected_at", "TEXT");
+    this.ensureColumn("devices", "heartbeat_version", "TEXT");
+    this.ensureColumn("devices", "heartbeat_hostname", "TEXT");
+    this.ensureColumn("devices", "heartbeat_username", "TEXT");
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -394,19 +437,7 @@ export class Database {
     });
   }
 
-  private mapDeviceRow(row: {
-    device_id: string;
-    display_name: string | null;
-    status: "online" | "offline";
-    last_seen: string;
-    version: string | null;
-    hostname: string | null;
-    username: string | null;
-    capabilities_json: string | null;
-    device_info_json: string | null;
-    created_at: string;
-    updated_at: string;
-  }): DeviceRecord {
+  private mapDeviceRow(row: DeviceRow): DeviceRecord {
     return {
       device_id: row.device_id,
       display_name: row.display_name,
@@ -417,6 +448,9 @@ export class Database {
       username: row.username,
       capabilities: parseJsonArray(row.capabilities_json),
       device_info: row.device_info_json ? parseJsonObject(row.device_info_json) : null,
+      subprocesses: {
+        heartbeat: mapHeartbeatSubprocess(row),
+      },
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -435,6 +469,12 @@ export class Database {
         username,
         capabilities_json,
         device_info_json,
+        heartbeat_status,
+        heartbeat_last_seen,
+        heartbeat_connected_at,
+        heartbeat_version,
+        heartbeat_hostname,
+        heartbeat_username,
         created_at,
         updated_at
       ) VALUES (
@@ -448,6 +488,12 @@ export class Database {
         @username,
         @capabilities_json,
         @device_info_json,
+        'offline',
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
         @created_at,
         @updated_at
       )
@@ -478,6 +524,12 @@ export class Database {
         username,
         capabilities_json,
         device_info_json,
+        heartbeat_status,
+        heartbeat_last_seen,
+        heartbeat_connected_at,
+        heartbeat_version,
+        heartbeat_hostname,
+        heartbeat_username,
         created_at,
         updated_at
       ) VALUES (
@@ -491,6 +543,12 @@ export class Database {
         @username,
         @capabilities_json,
         @device_info_json,
+        'offline',
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
         @created_at,
         @updated_at
       )
@@ -553,23 +611,9 @@ export class Database {
   public getDevice(deviceId: string): DeviceRecord | null {
     const row = this.db
       .prepare(
-        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, created_at, updated_at FROM devices WHERE device_id = ?",
+        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, heartbeat_status, heartbeat_last_seen, heartbeat_connected_at, heartbeat_version, heartbeat_hostname, heartbeat_username, created_at, updated_at FROM devices WHERE device_id = ?",
       )
-      .get(deviceId) as
-      | {
-          device_id: string;
-          display_name: string | null;
-          status: "online" | "offline";
-          last_seen: string;
-          version: string | null;
-          hostname: string | null;
-          username: string | null;
-          capabilities_json: string | null;
-          device_info_json: string | null;
-          created_at: string;
-          updated_at: string;
-        }
-      | undefined;
+      .get(deviceId) as DeviceRow | undefined;
 
     return row ? this.mapDeviceRow(row) : null;
   }
@@ -577,21 +621,9 @@ export class Database {
   public listDevices(): DeviceRecord[] {
     const rows = this.db
       .prepare(
-        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, created_at, updated_at FROM devices ORDER BY device_id ASC",
+        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, heartbeat_status, heartbeat_last_seen, heartbeat_connected_at, heartbeat_version, heartbeat_hostname, heartbeat_username, created_at, updated_at FROM devices ORDER BY device_id ASC",
       )
-      .all() as Array<{
-      device_id: string;
-      display_name: string | null;
-      status: "online" | "offline";
-      last_seen: string;
-      version: string | null;
-      hostname: string | null;
-      username: string | null;
-      capabilities_json: string | null;
-      device_info_json: string | null;
-      created_at: string;
-      updated_at: string;
-    }>;
+      .all() as DeviceRow[];
 
     return rows.map((row) => this.mapDeviceRow(row));
   }
@@ -637,6 +669,12 @@ export class Database {
               username,
               capabilities_json,
               device_info_json,
+              heartbeat_status,
+              heartbeat_last_seen,
+              heartbeat_connected_at,
+              heartbeat_version,
+              heartbeat_hostname,
+              heartbeat_username,
               created_at,
               updated_at
             FROM devices
@@ -655,6 +693,12 @@ export class Database {
             username: string | null;
             capabilities_json: string | null;
             device_info_json: string | null;
+            heartbeat_status: string | null;
+            heartbeat_last_seen: string | null;
+            heartbeat_connected_at: string | null;
+            heartbeat_version: string | null;
+            heartbeat_hostname: string | null;
+            heartbeat_username: string | null;
             created_at: string;
             updated_at: string;
           }
@@ -791,6 +835,70 @@ export class Database {
         "UPDATE devices SET last_seen = @last_seen, status = 'online', updated_at = @updated_at WHERE device_id = @device_id",
       )
       .run({ device_id: deviceId, last_seen: now, updated_at: now });
+  }
+
+  public markHeartbeatProcessOnline(input: {
+    deviceId: string;
+    version?: string;
+    hostname?: string;
+    username?: string;
+  }): void {
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `
+          UPDATE devices
+          SET heartbeat_status = 'online',
+              heartbeat_last_seen = @heartbeat_last_seen,
+              heartbeat_connected_at = @heartbeat_connected_at,
+              heartbeat_version = COALESCE(@heartbeat_version, heartbeat_version),
+              heartbeat_hostname = COALESCE(@heartbeat_hostname, heartbeat_hostname),
+              heartbeat_username = COALESCE(@heartbeat_username, heartbeat_username),
+              updated_at = @updated_at
+          WHERE device_id = @device_id
+        `,
+      )
+      .run({
+        device_id: input.deviceId,
+        heartbeat_last_seen: now,
+        heartbeat_connected_at: now,
+        heartbeat_version: input.version ?? null,
+        heartbeat_hostname: input.hostname ?? null,
+        heartbeat_username: input.username ?? null,
+        updated_at: now,
+      });
+  }
+
+  public markHeartbeatProcessOffline(deviceId: string): void {
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `
+          UPDATE devices
+          SET heartbeat_status = 'offline',
+              updated_at = @updated_at
+          WHERE device_id = @device_id
+        `,
+      )
+      .run({ device_id: deviceId, updated_at: now });
+  }
+
+  public touchHeartbeatProcess(deviceId: string): void {
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `
+          UPDATE devices
+          SET heartbeat_status = 'online',
+              heartbeat_last_seen = @heartbeat_last_seen,
+              updated_at = @updated_at
+          WHERE device_id = @device_id
+        `,
+      )
+      .run({ device_id: deviceId, heartbeat_last_seen: now, updated_at: now });
   }
 
   public insertCommandLog(input: CommandLogInsert): void {

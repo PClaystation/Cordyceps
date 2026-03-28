@@ -1107,6 +1107,40 @@ test("device detail endpoint returns control, aliases, queue, and recent logs", 
   }
 });
 
+test("device detail endpoint includes heartbeat subprocess state", async () => {
+  const harness = await createHarness();
+  const { server, db, registry, cleanup } = harness;
+
+  try {
+    registry.registerHeartbeatProcess({
+      deviceId: "m1",
+      socket: new MockSocket(),
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+    });
+    db.markHeartbeatProcessOnline({
+      deviceId: "m1",
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+    });
+
+    const detail = await server.inject({
+      method: "GET",
+      url: "/api/devices/m1",
+      headers: authHeaders("owner-token"),
+    });
+
+    assert.equal(detail.statusCode, 200);
+    const body = detail.json();
+    assert.equal(body.device.subprocesses.heartbeat.status, "online");
+    assert.equal(body.device.subprocesses.heartbeat.version, "1.0.0");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("device delete endpoint removes offline device records", async () => {
   const harness = await createHarness();
   const { server, db, cleanup } = harness;
@@ -1159,6 +1193,43 @@ test("device delete endpoint rejects online devices", async () => {
     assert.equal(body.ok, false);
     assert.equal(body.error_code, "DEVICE_ONLINE");
     assert.notEqual(db.getDevice("m1"), null);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("device delete endpoint rejects devices with an active heartbeat subprocess", async () => {
+  const harness = await createHarness();
+  const { server, db, registry, cleanup } = harness;
+
+  try {
+    db.markDeviceOffline("m1");
+    registry.disconnect("m1");
+    registry.registerHeartbeatProcess({
+      deviceId: "m1",
+      socket: new MockSocket(),
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+    });
+    db.markHeartbeatProcessOnline({
+      deviceId: "m1",
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+    });
+
+    const response = await server.inject({
+      method: "DELETE",
+      url: "/api/devices/m1",
+      headers: {
+        authorization: "Bearer owner-token",
+      },
+    });
+
+    assert.equal(response.statusCode, 409);
+    const body = response.json();
+    assert.equal(body.error_code, "DEVICE_ONLINE");
   } finally {
     await cleanup();
   }

@@ -51,6 +51,19 @@ func TestOtherSlot(t *testing.T) {
 	}
 }
 
+func TestDroneRoles(t *testing.T) {
+	got := DroneRoles()
+	want := []string{DroneRole1, DroneRole2, DroneRole3, DroneRole4, DroneRole5}
+	if len(got) != len(want) {
+		t.Fatalf("len(DroneRoles())=%d, want %d", len(got), len(want))
+	}
+	for index, role := range want {
+		if got[index] != role {
+			t.Fatalf("DroneRoles()[%d]=%q, want %q", index, got[index], role)
+		}
+	}
+}
+
 func TestInferSlotFromExecutable(t *testing.T) {
 	paths := Paths{
 		InstallRoot: filepath.Join(t.TempDir(), "D1Agent"),
@@ -61,5 +74,48 @@ func TestInferSlotFromExecutable(t *testing.T) {
 	}
 	if got := InferSlotFromExecutable(SlotExecutablePath(paths, SlotA), paths); got != SlotA {
 		t.Fatalf("InferSlotFromExecutable(slot-a)=%q", got)
+	}
+}
+
+func TestDroneExecutablePaths(t *testing.T) {
+	paths := Paths{
+		ConfigPath:      filepath.Join(t.TempDir(), "AppData", "D1Agent", "config.json"),
+		InstallRoot:     filepath.Join(t.TempDir(), "LocalAppData", "D1Agent"),
+		ProgramDataRoot: filepath.Join(t.TempDir(), "CordycepsD1"),
+	}
+
+	if got := DroneExecutablePath(paths, DroneRole3); got != filepath.Join(filepath.Dir(paths.ConfigPath), "drivers", "mesh-3", "d1-drone-3.exe") {
+		t.Fatalf("DroneExecutablePath(3)=%q", got)
+	}
+	if got := DroneBackupExecutablePath(paths, DroneRole5); got != filepath.Join(paths.ProgramDataRoot, "backup", "mesh-5-backup", "d1-drone-5.exe") {
+		t.Fatalf("DroneBackupExecutablePath(5)=%q", got)
+	}
+	if got := DroneTemplatePath(paths, DroneRole2); got != filepath.Join(paths.ProgramDataRoot, "templates", "mesh-2", "d1-drone-2.exe") {
+		t.Fatalf("DroneTemplatePath(2)=%q", got)
+	}
+	if got := DroneColdSparePath(paths); got != filepath.Join(paths.InstallRoot, "fonts", "cache", "cold-spare", "d1-drone-cold.exe") {
+		t.Fatalf("DroneColdSparePath()=%q", got)
+	}
+	if got := DroneRestoreClaimPath(paths, DroneRole4); got != filepath.Join(paths.ProgramDataRoot, "claims", "drone-4.claim") {
+		t.Fatalf("DroneRestoreClaimPath(4)=%q", got)
+	}
+	claimPaths := DroneRestoreClaimPaths(paths, DroneRole2)
+	if len(claimPaths) != 2 {
+		t.Fatalf("len(DroneRestoreClaimPaths())=%d", len(claimPaths))
+	}
+	heartbeatPaths := DroneHeartbeatPaths(paths, DroneRole1)
+	if len(heartbeatPaths) != 2 {
+		t.Fatalf("len(DroneHeartbeatPaths())=%d", len(heartbeatPaths))
+	}
+	if got := DroneLockScope(DroneRole5); got != "machine-scope/drone/5" {
+		t.Fatalf("DroneLockScope(5)=%q", got)
+	}
+	manifestPaths := DroneTrustManifestPaths(paths)
+	if len(manifestPaths) != 3 {
+		t.Fatalf("len(DroneTrustManifestPaths())=%d", len(manifestPaths))
+	}
+	rolloutPaths := DroneRolloutPolicyPaths(paths)
+	if len(rolloutPaths) != 3 {
+		t.Fatalf("len(DroneRolloutPolicyPaths())=%d", len(rolloutPaths))
 	}
 }

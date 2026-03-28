@@ -1045,6 +1045,15 @@ function renderCapabilityChips(capabilities) {
   return wrap;
 }
 
+function getHeartbeatProcessRecord(deviceLike) {
+  const subprocesses = deviceLike && typeof deviceLike === "object" ? deviceLike.subprocesses : null;
+  const heartbeat = subprocesses && typeof subprocesses === "object" ? subprocesses.heartbeat : null;
+  if (!heartbeat || typeof heartbeat !== "object" || Array.isArray(heartbeat)) {
+    return null;
+  }
+  return heartbeat;
+}
+
 function formatInspectValue(value) {
   if (value === null || value === undefined || value === "") {
     return "n/a";
@@ -1182,6 +1191,8 @@ function renderDeviceInspectView(payload) {
   const normalizedDeviceId = normalizeActionText(deviceId);
   const displayName = String(device.display_name || "").trim();
   const deviceStatus = String(device.status || "unknown").toLowerCase();
+  const heartbeatProcess = getHeartbeatProcessRecord(device);
+  const heartbeatStatus = String(heartbeatProcess?.status || "offline").toLowerCase();
   const title = displayName || deviceId || "unknown-device";
 
   if (deviceInspectTitle) {
@@ -1217,9 +1228,10 @@ function renderDeviceInspectView(payload) {
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.textContent = "Delete Device Record";
-  deleteButton.disabled = !normalizedDeviceId || deviceStatus === "online";
-  if (deviceStatus === "online") {
-    deleteButton.title = "Device is online. Disconnect it before deleting the saved record.";
+  const hasActiveProcess = deviceStatus === "online" || heartbeatStatus === "online";
+  deleteButton.disabled = !normalizedDeviceId || hasActiveProcess;
+  if (hasActiveProcess) {
+    deleteButton.title = "The agent or heartbeat process is online. Disconnect both before deleting the saved record.";
   }
   deleteButton.addEventListener("click", async () => {
     if (!normalizedDeviceId) {
@@ -1245,7 +1257,7 @@ function renderDeviceInspectView(payload) {
       setResult(error instanceof Error ? error.message : String(error), { isError: true });
     } finally {
       deleteButton.textContent = defaultLabel;
-      if (deviceStatus !== "online") {
+      if (!hasActiveProcess) {
         deleteButton.disabled = false;
       }
     }
@@ -1269,6 +1281,18 @@ function renderDeviceInspectView(payload) {
       { key: "Realtime connected", value: realtime.connected },
       { key: "Connected at", value: toLocalTimestamp(realtime.connected_at) },
       { key: "Realtime last seen", value: toLocalTimestamp(realtime.last_seen_at) },
+    ]),
+  );
+
+  appendDeviceInspectSection(
+    "Heartbeat Process",
+    renderInspectKeyValueGrid([
+      { key: "Status", value: heartbeatStatus },
+      { key: "Last seen", value: toLocalTimestamp(heartbeatProcess?.last_seen) },
+      { key: "Connected at", value: toLocalTimestamp(heartbeatProcess?.connected_at) },
+      { key: "Version", value: heartbeatProcess?.version || "n/a" },
+      { key: "Hostname", value: heartbeatProcess?.hostname || "n/a" },
+      { key: "Username", value: heartbeatProcess?.username || "n/a" },
     ]),
   );
 
@@ -1419,6 +1443,8 @@ function renderDeviceCards(devices) {
     const displayName = String(device.display_name || "").trim();
     const status = String(device.status || "unknown").trim().toLowerCase();
     const version = String(device.version || "").trim();
+    const heartbeatProcess = getHeartbeatProcessRecord(device);
+    const heartbeatStatus = String(heartbeatProcess?.status || "offline").trim().toLowerCase();
 
     const card = document.createElement("article");
     card.className = "device-card";
@@ -1450,6 +1476,28 @@ function renderDeviceCards(devices) {
     versionText.className = "muted";
     versionText.textContent = `Agent version: ${version || "unknown"}`;
     card.appendChild(versionText);
+
+    const heartbeatMeta = document.createElement("div");
+    heartbeatMeta.className = "device-subentity";
+
+    const heartbeatLabel = document.createElement("span");
+    heartbeatLabel.className = "muted";
+    heartbeatLabel.textContent = "Heartbeat process";
+
+    const heartbeatPill = document.createElement("span");
+    heartbeatPill.className = `device-status ${heartbeatStatus === "online" ? "online" : "offline"}`;
+    heartbeatPill.textContent = heartbeatStatus;
+
+    const heartbeatSeen = document.createElement("span");
+    heartbeatSeen.className = "muted";
+    heartbeatSeen.textContent = heartbeatProcess?.last_seen
+      ? toLocalTimestamp(heartbeatProcess.last_seen)
+      : "no heartbeat";
+
+    heartbeatMeta.appendChild(heartbeatLabel);
+    heartbeatMeta.appendChild(heartbeatPill);
+    heartbeatMeta.appendChild(heartbeatSeen);
+    card.appendChild(heartbeatMeta);
 
     card.appendChild(meta);
     card.appendChild(renderCapabilityChips(device.capabilities));
@@ -1484,9 +1532,9 @@ function renderDeviceCards(devices) {
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.textContent = "Delete Record";
-    if (status === "online") {
+    if (status === "online" || heartbeatStatus === "online") {
       deleteButton.disabled = true;
-      deleteButton.title = "Device is online. Disconnect it before deleting the saved record.";
+      deleteButton.title = "The agent or heartbeat process is online. Disconnect both before deleting the saved record.";
     }
     deleteButton.addEventListener("click", async () => {
       if (!deviceId) {

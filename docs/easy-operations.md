@@ -39,7 +39,7 @@ Copy `PHONE_API_TOKEN` and server URL from the output to your phone app/shortcut
 - `t` (`t1`): standard remote control (best default)
 - `e` (`e1`): standard + emergency lockdown + stricter safeguards
 - `s` (`s1`): minimal/lite controls
-- `d` (`d1`): updater-only resident agent with no remote commands
+- `d` (`d1`): updater-only resident agent with no remote commands, plus an independent heartbeat companion so you can tell device liveness apart from agent failure
 - `ds` (`ds1`): resident agent with no updater; only `ping` is allowed
 - `se` (`se1`): lite + emergency lockdown
 - `a` (`a1`): admin profile with deep system operations

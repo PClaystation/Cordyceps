@@ -7,7 +7,7 @@ import { EventHub, type RealtimeEvent } from "../events/eventHub";
 import { parseExternalCommand } from "../parser/commandParser";
 import { DeviceRegistry } from "../realtime/deviceRegistry";
 import { CommandRouter, DispatchError } from "../router/commandRouter";
-import type { CommandDispatchResult, TypedCommand } from "../types/protocol";
+import type { CommandDispatchResult, DeviceSubprocessRecord, TypedCommand } from "../types/protocol";
 import { randomToken, sha256Hex } from "../utils/crypto";
 import { makeRequestId } from "../utils/id";
 import { log } from "../utils/logger";
@@ -863,6 +863,32 @@ function withProfile<T extends { device_id: string; capabilities: string[] }>(de
   return {
     ...device,
     profile: resolveDeviceProfile(device.device_id, device.capabilities),
+  };
+}
+
+function withHeartbeatSubprocess<
+  T extends { device_id: string; capabilities: string[]; subprocesses: { heartbeat: DeviceSubprocessRecord } },
+>(
+  device: T,
+  heartbeatProcess: ReturnType<DeviceRegistry["getHeartbeatProcess"]>,
+): T {
+  if (!heartbeatProcess) {
+    return device;
+  }
+
+  return {
+    ...device,
+    subprocesses: {
+      ...device.subprocesses,
+      heartbeat: {
+        status: "online",
+        last_seen: new Date(heartbeatProcess.lastSeenAt).toISOString(),
+        connected_at: new Date(heartbeatProcess.connectedAt).toISOString(),
+        version: heartbeatProcess.version,
+        hostname: heartbeatProcess.hostname,
+        username: heartbeatProcess.username,
+      },
+    },
   };
 }
 
@@ -1955,8 +1981,9 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
 
     const devices = deps.db.listDevices().map((device) => {
       const control = deps.db.getDeviceControl(device.device_id);
+      const hydrated = withHeartbeatSubprocess(device, deps.registry.getHeartbeatProcess(device.device_id));
       return {
-        ...withProfile(device),
+        ...withProfile(hydrated),
         quarantine_enabled: control.quarantine_enabled,
         kill_switch_enabled: control.kill_switch_enabled,
         quarantine_reason: control.reason,
@@ -1989,7 +2016,8 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
     const recentLogLimit = Math.max(1, Math.min(100, normalizeHistoryLimit(query.logs_limit)));
     const dbDevice = deps.db.getDevice(deviceId);
     const connected = deps.registry.get(deviceId);
-    if (!dbDevice && !connected) {
+    const heartbeatConnected = deps.registry.getHeartbeatProcess(deviceId);
+    if (!dbDevice && !connected && !heartbeatConnected) {
       reply.code(404).send({
         ok: false,
         message: `Unknown device: ${deviceId}`,
@@ -2008,9 +2036,20 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       username: connected?.username ?? null,
       capabilities: connected?.capabilities ?? [],
       device_info: connected?.deviceInfo ?? null,
+      subprocesses: {
+        heartbeat: {
+          status: heartbeatConnected ? "online" : "offline",
+          last_seen: heartbeatConnected ? new Date(heartbeatConnected.lastSeenAt).toISOString() : null,
+          connected_at: heartbeatConnected ? new Date(heartbeatConnected.connectedAt).toISOString() : null,
+          version: heartbeatConnected?.version ?? null,
+          hostname: heartbeatConnected?.hostname ?? null,
+          username: heartbeatConnected?.username ?? null,
+        },
+      },
       created_at: "",
       updated_at: "",
     };
+    const hydratedDevice = withHeartbeatSubprocess(device, heartbeatConnected);
 
     const control = deps.db.getDeviceControl(deviceId);
     const aliases = deps.db.listDeviceAppAliases(deviceId);
@@ -2023,7 +2062,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
     reply.send({
       ok: true,
       device: {
-        ...withProfile(device),
+        ...withProfile(hydratedDevice),
         quarantine_enabled: control.quarantine_enabled,
         kill_switch_enabled: control.kill_switch_enabled,
         quarantine_reason: control.reason,
@@ -2063,10 +2102,10 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       return;
     }
 
-    if (deps.registry.get(deviceId)) {
+    if (deps.registry.get(deviceId) || deps.registry.getHeartbeatProcess(deviceId)) {
       reply.code(409).send({
         ok: false,
-        message: `${deviceId} is online. Disconnect it before deleting the record.`,
+        message: `${deviceId} still has an active agent or heartbeat process. Disconnect it before deleting the record.`,
         error_code: "DEVICE_ONLINE",
       });
       return;

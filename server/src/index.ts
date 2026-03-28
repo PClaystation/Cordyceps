@@ -246,6 +246,18 @@ async function main(): Promise<void> {
         });
         log("warn", "Agent heartbeat expired", { device_id: deviceId });
       }
+
+      const timedOutHeartbeatProcesses = registry.pruneExpiredHeartbeatProcesses(config.heartbeatTtlMs);
+      for (const deviceId of timedOutHeartbeatProcesses) {
+        db.markHeartbeatProcessOffline(deviceId);
+        eventHub.publish("device_status", {
+          device_id: deviceId,
+          status: "offline",
+          subprocess: "heartbeat",
+          reason: "heartbeat_timeout",
+        });
+        log("warn", "Heartbeat process expired", { device_id: deviceId });
+      }
     } catch (error) {
       log("error", "Heartbeat sweep failed", {
         error: error instanceof Error ? error.message : String(error),

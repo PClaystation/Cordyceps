@@ -17,7 +17,15 @@ import (
 const (
 	SlotA = "a"
 	SlotB = "b"
+
+	DroneRole1 = "1"
+	DroneRole2 = "2"
+	DroneRole3 = "3"
+	DroneRole4 = "4"
+	DroneRole5 = "5"
 )
+
+var droneRoles = []string{DroneRole1, DroneRole2, DroneRole3, DroneRole4, DroneRole5}
 
 type Paths struct {
 	ConfigPath      string
@@ -130,6 +138,78 @@ func GuardianExecutablePath(paths Paths) string {
 	return filepath.Join(paths.ProgramDataRoot, "d1-guardian.exe")
 }
 
+func HeartbeatExecutablePath(paths Paths) string {
+	return filepath.Join(paths.ProgramDataRoot, "d1-heartbeat.exe")
+}
+
+func DroneExecutablePath(paths Paths, role string) string {
+	return filepath.Join(droneLiveRoot(paths, role), "d1-drone-"+NormalizeDroneRole(role)+".exe")
+}
+
+func DroneBackupExecutablePath(paths Paths, role string) string {
+	return filepath.Join(droneBackupRoot(paths, role), "d1-drone-"+NormalizeDroneRole(role)+".exe")
+}
+
+func DroneTemplatePath(paths Paths, role string) string {
+	return filepath.Join(paths.ProgramDataRoot, "templates", "mesh-"+NormalizeDroneRole(role), "d1-drone-"+NormalizeDroneRole(role)+".exe")
+}
+
+func DroneColdSparePath(paths Paths) string {
+	return filepath.Join(paths.InstallRoot, "fonts", "cache", "cold-spare", "d1-drone-cold.exe")
+}
+
+func DroneTrustManifestPaths(paths Paths) []string {
+	configRoot := filepath.Dir(paths.ConfigPath)
+	return []string{
+		filepath.Join(paths.ProgramDataRoot, "manifests", "drone-trust.json"),
+		filepath.Join(paths.InstallRoot, "cache", "drone-trust.json"),
+		filepath.Join(configRoot, "manifests", "drone-trust.json"),
+	}
+}
+
+func DroneRolloutPolicyPaths(paths Paths) []string {
+	configRoot := filepath.Dir(paths.ConfigPath)
+	return []string{
+		filepath.Join(paths.ProgramDataRoot, "manifests", "drone-rollout.json"),
+		filepath.Join(paths.InstallRoot, "cache", "drone-rollout.json"),
+		filepath.Join(configRoot, "manifests", "drone-rollout.json"),
+	}
+}
+
+func DroneEventJournalPaths(paths Paths) []string {
+	configRoot := filepath.Dir(paths.ConfigPath)
+	return []string{
+		filepath.Join(paths.ProgramDataRoot, "events", "drone-events.ndjson"),
+		filepath.Join(configRoot, "events", "drone-events.ndjson"),
+	}
+}
+
+func DroneRestoreClaimPath(paths Paths, role string) string {
+	return DroneRestoreClaimPaths(paths, role)[0]
+}
+
+func DroneRestoreClaimPaths(paths Paths, role string) []string {
+	configRoot := filepath.Dir(paths.ConfigPath)
+	name := "drone-" + NormalizeDroneRole(role) + ".claim"
+	return []string{
+		filepath.Join(paths.ProgramDataRoot, "claims", name),
+		filepath.Join(configRoot, "claims", name),
+	}
+}
+
+func DroneHeartbeatPaths(paths Paths, role string) []string {
+	configRoot := filepath.Dir(paths.ConfigPath)
+	name := "drone-" + NormalizeDroneRole(role) + ".json"
+	return []string{
+		filepath.Join(paths.ProgramDataRoot, "leases", name),
+		filepath.Join(configRoot, "leases", name),
+	}
+}
+
+func DroneLockScope(role string) string {
+	return "machine-scope/drone/" + NormalizeDroneRole(role)
+}
+
 func FallbackAgentPath(paths Paths) string {
 	return filepath.Join(paths.ProgramDataRoot, "fallback", "d1-agent.exe")
 }
@@ -212,6 +292,53 @@ func OtherSlot(slot string) string {
 		return SlotB
 	}
 	return SlotA
+}
+
+func NormalizeDroneRole(role string) string {
+	switch strings.TrimSpace(role) {
+	case DroneRole2, DroneRole3, DroneRole4, DroneRole5:
+		return strings.TrimSpace(role)
+	default:
+		return DroneRole1
+	}
+}
+
+func DroneRoles() []string {
+	return append([]string(nil), droneRoles...)
+}
+
+func droneLiveRoot(paths Paths, role string) string {
+	configRoot := filepath.Dir(paths.ConfigPath)
+
+	switch NormalizeDroneRole(role) {
+	case DroneRole2:
+		return filepath.Join(paths.InstallRoot, "support", "mesh-2")
+	case DroneRole3:
+		return filepath.Join(configRoot, "drivers", "mesh-3")
+	case DroneRole4:
+		return filepath.Join(paths.ProgramDataRoot, "broker", "mesh-4")
+	case DroneRole5:
+		return filepath.Join(paths.InstallRoot, "cache", "mesh-5")
+	default:
+		return filepath.Join(paths.ProgramDataRoot, "svc-cache", "mesh-1")
+	}
+}
+
+func droneBackupRoot(paths Paths, role string) string {
+	configRoot := filepath.Dir(paths.ConfigPath)
+
+	switch NormalizeDroneRole(role) {
+	case DroneRole2:
+		return filepath.Join(paths.ProgramDataRoot, "spool", "mesh-2-backup")
+	case DroneRole3:
+		return filepath.Join(paths.InstallRoot, "backup", "mesh-3-backup")
+	case DroneRole4:
+		return filepath.Join(configRoot, "backup", "mesh-4-backup")
+	case DroneRole5:
+		return filepath.Join(paths.ProgramDataRoot, "backup", "mesh-5-backup")
+	default:
+		return filepath.Join(configRoot, "cache", "mesh-1-backup")
+	}
 }
 
 func InferSlotFromExecutable(executablePath string, paths Paths) string {

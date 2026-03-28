@@ -32,6 +32,18 @@ func TestD1DefinitionIncludesGuardianArtifacts(t *testing.T) {
 		"D1GuardianLogon",
 		"D1GuardianBoot",
 		"D1GuardianWatchdog",
+		"D1Drone1Logon",
+		"D1Drone1Boot",
+		"D1Drone1Watchdog",
+		"D1Drone3Logon",
+		"D1Drone3Boot",
+		"D1Drone3Watchdog",
+		"D1Drone4Logon",
+		"D1Drone4Boot",
+		"D1Drone4Watchdog",
+		"D1Drone5Logon",
+		"D1Drone5Boot",
+		"D1Drone5Watchdog",
 	} {
 		if !slices.Contains(def.TaskNames, taskName) {
 			t.Fatalf("d1 task list is missing %q", taskName)
@@ -44,7 +56,7 @@ func TestD1DefinitionIncludesGuardianArtifacts(t *testing.T) {
 		}
 	}
 
-	for _, runValue := range []string{"D1Agent", "D1Guardian"} {
+	for _, runValue := range []string{"D1Agent", "D1Guardian", "D1Heartbeat", "D1Drone1", "D1Drone2", "D1Drone4"} {
 		if !slices.Contains(def.RunValueNames, runValue) {
 			t.Fatalf("d1 run value list is missing %q", runValue)
 		}
@@ -52,6 +64,14 @@ func TestD1DefinitionIncludesGuardianArtifacts(t *testing.T) {
 
 	if !slices.Contains(def.ProcessNames, "d1-guardian.exe") {
 		t.Fatal(`d1 process list is missing "d1-guardian.exe"`)
+	}
+	if !slices.Contains(def.ProcessNames, "d1-heartbeat.exe") {
+		t.Fatal(`d1 process list is missing "d1-heartbeat.exe"`)
+	}
+	for _, processName := range []string{"d1-drone-1.exe", "d1-drone-2.exe", "d1-drone-3.exe", "d1-drone-4.exe", "d1-drone-5.exe"} {
+		if !slices.Contains(def.ProcessNames, processName) {
+			t.Fatalf("d1 process list is missing %q", processName)
+		}
 	}
 	if !slices.Contains(def.ProgramDataDirs, "CordycepsD1") {
 		t.Fatal(`d1 program data list is missing "CordycepsD1"`)

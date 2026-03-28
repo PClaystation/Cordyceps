@@ -179,16 +179,16 @@ var strains = map[string]strainDefinition{
 			"s1-launch-*.cmd",
 		},
 	},
-	"d1": {
-		Key:           "d1",
-		Description:   "D1 agent",
-		ProcessNames:  []string{"d1-agent.exe", "d1-guardian.exe"},
-		TaskNames:     []string{"DevHelperBackgroundLogon", "DevHelperBackgroundBoot", "DevHelperBackgroundWatchdog", "D1GuardianLogon", "D1GuardianBoot", "D1GuardianWatchdog", "D1Agent", "D1AgentBoot", "D1AgentWatchdog"},
-		ServiceNames:  []string{"CordycepsD1", "CordycepsD1Guardian"},
-		RunValueNames: []string{"D1Agent", "D1Guardian"},
-		LocalAppDataDirs: []string{
-			"D1Agent",
-		},
+		"d1": {
+			Key:           "d1",
+			Description:   "D1 agent",
+			ProcessNames:  []string{"d1-agent.exe", "d1-guardian.exe", "d1-heartbeat.exe", "d1-drone-1.exe", "d1-drone-2.exe", "d1-drone-3.exe", "d1-drone-4.exe", "d1-drone-5.exe"},
+			TaskNames:     []string{"DevHelperBackgroundLogon", "DevHelperBackgroundBoot", "DevHelperBackgroundWatchdog", "D1GuardianLogon", "D1GuardianBoot", "D1GuardianWatchdog", "D1Agent", "D1AgentBoot", "D1AgentWatchdog", "D1Drone1Logon", "D1Drone1Boot", "D1Drone1Watchdog", "D1Drone3Logon", "D1Drone3Boot", "D1Drone3Watchdog", "D1Drone4Logon", "D1Drone4Boot", "D1Drone4Watchdog", "D1Drone5Logon", "D1Drone5Boot", "D1Drone5Watchdog"},
+			ServiceNames:  []string{"CordycepsD1", "CordycepsD1Guardian"},
+			RunValueNames: []string{"D1Agent", "D1Guardian", "D1Heartbeat", "D1Drone1", "D1Drone2", "D1Drone4"},
+			LocalAppDataDirs: []string{
+				"D1Agent",
+			},
 		AppDataDirs: []string{
 			"D1Agent",
 		},

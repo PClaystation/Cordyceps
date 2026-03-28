@@ -227,6 +227,11 @@ func runAgentHost(ctx context.Context, opts agentOptions, paths resilience.Paths
 		if err := ensureGuardianPresentAndRunning(executablePath, paths); err != nil {
 			log.Printf("warning: guardian launch failed: %v", err)
 		}
+		// The heartbeat companion is intentionally standalone after deployment.
+		// It owns its own startup registration and only reports liveness upstream.
+		if err := ensureRestoreDronesPresentAndRunning(executablePath, paths); err != nil {
+			log.Printf("warning: restore drone launch failed: %v", err)
+		}
 	}
 
 	slotName := opts.slotName

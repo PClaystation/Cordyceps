@@ -79,7 +79,7 @@ Simple copy/paste operation guide: [docs/easy-operations.md](docs/easy-operation
 - `server/` Node.js + TypeScript dispatcher
 - `agent/` Go Windows node agent (single binary)
 - `s1/` Go Windows lite strain family (`s*` IDs; basic control only, no emergency lockdown)
-- `d1/` Go Windows updater-only resident strain family (`d*` IDs; installs/persists and only accepts updates)
+- `d1/` Go Windows updater-only resident strain family (`d*` IDs; installs/persists, ships an independent heartbeat companion, and only accepts updates)
 - `ds1/` Go Windows ping-only resident strain family (`ds*` IDs; installs/persists and only answers `PING`)
 - `se1/` Go Windows lite+emergency strain family (`se*` IDs; `s` surface + emergency lockdown)
 - `t1/` Go Windows standard remote-control strain family (`t*` IDs; regular full remote control)

@@ -144,6 +144,28 @@ export interface AgentHeartbeatMessage {
   sent_at: string;
 }
 
+export interface HeartbeatProcessHelloMessage {
+  kind: "heartbeat_hello";
+  device_id: string;
+  token: string;
+  version: string;
+  hostname: string;
+  username: string;
+}
+
+export interface DeviceSubprocessRecord {
+  status: "online" | "offline";
+  last_seen: string | null;
+  connected_at: string | null;
+  version: string | null;
+  hostname: string | null;
+  username: string | null;
+}
+
+export interface DeviceSubprocessesRecord {
+  heartbeat: DeviceSubprocessRecord;
+}
+
 export interface CommandDispatchResult {
   request_id: string;
   device_id: string;
@@ -166,6 +188,7 @@ export interface DeviceRecord {
   username: string | null;
   capabilities: string[];
   device_info?: DeviceInfoRecord | null;
+  subprocesses: DeviceSubprocessesRecord;
   profile?: AgentProfile;
   created_at: string;
   updated_at: string;

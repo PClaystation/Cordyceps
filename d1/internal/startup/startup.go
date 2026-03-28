@@ -1,8 +1,11 @@
 package startup
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -36,6 +39,192 @@ func EnsureStartupRegistration(executablePath string) error {
 func RepairStartupRegistrationIfMissing(executablePath string) error {
 	return RepairRegistrationIfMissing(newCurrentRegistrationSpec(executablePath))
 }
+
+func EnsureUserRunKeyRegistration(name string, command string, legacyTaskNames []string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return fmt.Errorf("empty startup command")
+	}
+
+	if err := ensureRunKey(name, command); err != nil {
+		return err
+	}
+
+	removeScheduledTasks(legacyTaskNames)
+	return nil
+}
+
+func RepairUserRunKeyRegistrationIfMissing(name string, command string, legacyTaskNames []string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return fmt.Errorf("empty startup command")
+	}
+
+	if exists, err := runKeyExists(name); err != nil {
+		return err
+	} else if !exists {
+		if err := ensureRunKey(name, command); err != nil {
+			return err
+		}
+	}
+
+	removeScheduledTasks(legacyTaskNames)
+	return nil
+}
+
+func EnsureScheduledTaskRegistration(spec RegistrationSpec) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	spec.Command = strings.TrimSpace(spec.Command)
+	if spec.Command == "" {
+		return fmt.Errorf("empty startup command")
+	}
+
+	registered := false
+	registrationErrors := make([]string, 0, 3)
+
+	if err := ensureScheduledTask(spec.StartupName, spec.Command, []string{"/SC", "ONLOGON"}, spec.StartupDescription); err != nil {
+		registrationErrors = append(registrationErrors, err.Error())
+	} else {
+		registered = true
+	}
+
+	if err := ensureScheduledTask(spec.BootStartupName, spec.Command, []string{"/SC", "ONSTART"}, spec.BootDescription); err != nil {
+		registrationErrors = append(registrationErrors, err.Error())
+	} else {
+		registered = true
+	}
+
+	if err := ensureScheduledTask(spec.WatchdogStartupName, spec.Command, []string{"/SC", "MINUTE", "/MO", "1"}, spec.WatchdogDescription); err != nil {
+		registrationErrors = append(registrationErrors, err.Error())
+	} else {
+		registered = true
+	}
+
+	if registered {
+		return nil
+	}
+
+	return fmt.Errorf("register startup scheduled tasks: %s", strings.Join(registrationErrors, "; "))
+}
+
+func EnsureStartupFolderRegistration(name string, command string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return fmt.Errorf("empty startup command")
+	}
+
+	return writeStartupFolderLauncher(name, command)
+}
+
+func RepairStartupFolderRegistrationIfMissing(name string, command string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return fmt.Errorf("empty startup command")
+	}
+
+	path, err := startupFolderLauncherPath(name)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	return writeStartupFolderLauncher(name, command)
+}
+
+func RepairScheduledTaskRegistrationIfMissing(spec RegistrationSpec) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	spec.Command = strings.TrimSpace(spec.Command)
+	if spec.Command == "" {
+		return fmt.Errorf("empty startup command")
+	}
+
+	repairErrors := make([]string, 0, 3)
+
+	if exists, err := scheduledTaskExists(spec.StartupName); err != nil {
+		repairErrors = append(repairErrors, err.Error())
+	} else if !exists {
+		if err := ensureScheduledTask(spec.StartupName, spec.Command, []string{"/SC", "ONLOGON"}, spec.StartupDescription); err != nil {
+			repairErrors = append(repairErrors, err.Error())
+		}
+	}
+
+	if exists, err := scheduledTaskExists(spec.BootStartupName); err != nil {
+		repairErrors = append(repairErrors, err.Error())
+	} else if !exists {
+		if err := ensureScheduledTask(spec.BootStartupName, spec.Command, []string{"/SC", "ONSTART"}, spec.BootDescription); err != nil {
+			repairErrors = append(repairErrors, err.Error())
+		}
+	}
+
+	if exists, err := scheduledTaskExists(spec.WatchdogStartupName); err != nil {
+		repairErrors = append(repairErrors, err.Error())
+	} else if !exists {
+		if err := ensureScheduledTask(spec.WatchdogStartupName, spec.Command, []string{"/SC", "MINUTE", "/MO", "1"}, spec.WatchdogDescription); err != nil {
+			repairErrors = append(repairErrors, err.Error())
+		}
+	}
+
+	if len(repairErrors) > 0 {
+		return fmt.Errorf("repair startup scheduled tasks: %s", strings.Join(repairErrors, "; "))
+	}
+
+	return nil
+}
+
+func startupFolderLauncherPath(name string) (string, error) {
+	appData := strings.TrimSpace(os.Getenv("APPDATA"))
+	if appData == "" {
+		return "", fmt.Errorf("APPDATA is not set")
+	}
+
+	fileName := strings.TrimSpace(name)
+	if fileName == "" {
+		return "", fmt.Errorf("empty startup launcher name")
+	}
+
+	return filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup", fileName+".cmd"), nil
+}
+
+func writeStartupFolderLauncher(name string, command string) error {
+	path, err := startupFolderLauncherPath(name)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+
+	body := "@echo off\r\nstart \"\" /min " + command + "\r\n"
+	return os.WriteFile(path, []byte(body), 0o600)
+}
+
 
 func EnsureRegistration(spec RegistrationSpec) error {
 	if runtime.GOOS != "windows" {

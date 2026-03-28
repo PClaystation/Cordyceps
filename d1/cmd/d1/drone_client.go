@@ -1,0 +1,94 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/charliearnerstal/jarvis/d1/internal/background"
+	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
+)
+
+func ensureRestoreDronesPresentAndRunning(agentExecutablePath string, paths resilience.Paths) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	for _, role := range resilience.DroneRoles() {
+		sourcePath, err := discoverRestoreDroneSource(agentExecutablePath, role)
+		if err != nil {
+			return err
+		}
+		if sourcePath == "" {
+			return fmt.Errorf("restore drone %s executable source is missing", role)
+		}
+		if err := ensureRestoreDronePresentAndRunning(sourcePath, paths, role); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ensureRestoreDronePresentAndRunning(sourcePath string, paths resilience.Paths, role string) error {
+	targetPath := resilience.DroneExecutablePath(paths, role)
+	backupPath := resilience.DroneBackupExecutablePath(paths, role)
+
+	liveMissing, err := resilience.MissingOrInvalidExecutable(targetPath)
+	if err != nil {
+		return err
+	}
+	backupMissing, err := resilience.MissingOrInvalidExecutable(backupPath)
+	if err != nil {
+		return err
+	}
+
+	if liveMissing {
+		if err := resilience.CopyExecutable(sourcePath, targetPath); err != nil {
+			return fmt.Errorf("install drone %s executable: %w", role, err)
+		}
+	}
+	if backupMissing {
+		if err := resilience.CopyExecutable(sourcePath, backupPath); err != nil {
+			return fmt.Errorf("seed drone %s backup: %w", role, err)
+		}
+	}
+
+	missing, err := resilience.MissingOrInvalidExecutable(targetPath)
+	if err != nil {
+		return err
+	}
+	if missing {
+		return fmt.Errorf("drone %s executable is missing at %s", role, targetPath)
+	}
+
+	return background.RelaunchDetached(targetPath, []string{
+		"--config", paths.ConfigPath,
+		"--install-root", paths.InstallRoot,
+		"--program-data-root", paths.ProgramDataRoot,
+		"--role", resilience.NormalizeDroneRole(role),
+	})
+}
+
+func discoverRestoreDroneSource(agentExecutablePath string, role string) (string, error) {
+	baseDir := filepath.Dir(strings.TrimSpace(agentExecutablePath))
+	fileName := "d1-drone-" + resilience.NormalizeDroneRole(role) + ".exe"
+	candidates := []string{
+		filepath.Join(baseDir, fileName),
+		filepath.Join(baseDir, "dist", fileName),
+		filepath.Join(baseDir, "d1-drone.exe"),
+		filepath.Join(baseDir, "dist", "d1-drone.exe"),
+		filepath.Join(baseDir, "..", "d1drone", fileName),
+		filepath.Join(baseDir, "..", "d1drone", "d1-drone.exe"),
+	}
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return filepath.Clean(candidate), nil
+		}
+	}
+
+	return "", nil
+}

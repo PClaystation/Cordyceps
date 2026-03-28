@@ -5,6 +5,7 @@ import type {
   AgentHelloMessage,
   AgentResultMessage,
   DeviceInfoRecord,
+  HeartbeatProcessHelloMessage,
 } from "../types/protocol";
 import type { Database } from "../db/database";
 import { CommandRouter } from "../router/commandRouter";
@@ -359,6 +360,35 @@ function asHeartbeatMessage(value: Record<string, unknown>): AgentHeartbeatMessa
   };
 }
 
+function asHeartbeatProcessHelloMessage(value: Record<string, unknown>): HeartbeatProcessHelloMessage | null {
+  if (value.kind !== "heartbeat_hello") {
+    return null;
+  }
+
+  const deviceId = normalizeRequiredString(value.device_id, 32);
+  const token = normalizeRequiredString(value.token, 256);
+  const version = normalizeRequiredString(value.version, 64);
+  const hostname = normalizeRequiredString(value.hostname, 120);
+  const username = normalizeRequiredString(value.username, 120);
+
+  if (!deviceId || !token || !version || !hostname || !username) {
+    return null;
+  }
+
+  if (!isValidDeviceId(deviceId)) {
+    return null;
+  }
+
+  return {
+    kind: "heartbeat_hello",
+    device_id: deviceId,
+    token,
+    version,
+    hostname,
+    username,
+  };
+}
+
 function asResultMessage(value: Record<string, unknown>): AgentResultMessage | null {
   if (value.kind !== "result") {
     return null;
@@ -668,6 +698,170 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
 
     socket.on("error", (error) => {
       log("warn", "Agent socket error", {
+        device_id: activeDeviceId ?? "unknown",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
+
+  server.get("/ws/device-heartbeat", { websocket: true }, (connection) => {
+    const socket = resolveSocket(connection);
+    if (!socket) {
+      log("error", "Failed to resolve heartbeat socket instance");
+      return;
+    }
+
+    let authenticated = false;
+    let activeDeviceId: string | null = null;
+    let pingTimer: NodeJS.Timeout | null = null;
+
+    const authTimer = setTimeout(() => {
+      if (!authenticated) {
+        closeQuietly(socket, 4001, "Authentication timeout");
+      }
+    }, deps.wsAuthTimeoutMs);
+
+    authTimer.unref?.();
+
+    socket.on("message", (raw) => {
+      try {
+        if (payloadSizeBytes(raw) > deps.wsMaxMessageBytes) {
+          closeQuietly(socket, 1009, "Message too large");
+          return;
+        }
+
+        const payload = parseJson(raw);
+        if (!payload) {
+          closeQuietly(socket, 4004, "Invalid JSON message");
+          return;
+        }
+
+        if (!authenticated) {
+          const hello = asHeartbeatProcessHelloMessage(payload);
+          if (!hello) {
+            closeQuietly(socket, 4003, "Expected heartbeat hello handshake");
+            return;
+          }
+
+          if (!deps.db.isValidDeviceToken(hello.device_id, hello.token)) {
+            closeQuietly(socket, 4003, "Invalid device token");
+            return;
+          }
+
+          authenticated = true;
+          activeDeviceId = hello.device_id;
+          clearTimeout(authTimer);
+
+          deps.registry.registerHeartbeatProcess({
+            deviceId: hello.device_id,
+            socket,
+            version: hello.version,
+            hostname: hello.hostname,
+            username: hello.username,
+          });
+
+          deps.db.markHeartbeatProcessOnline({
+            deviceId: hello.device_id,
+            version: hello.version,
+            hostname: hello.hostname,
+            username: hello.username,
+          });
+
+          deps.eventHub.publish("device_status", {
+            device_id: hello.device_id,
+            status: "online",
+            subprocess: "heartbeat",
+            version: hello.version,
+            hostname: hello.hostname,
+            username: hello.username,
+          });
+
+          safeSendJson(socket, {
+            kind: "hello_ack",
+            server_time: new Date().toISOString(),
+          });
+
+          pingTimer = setInterval(() => {
+            if (!isSocketOpen(socket) || typeof socket.ping !== "function") {
+              return;
+            }
+
+            try {
+              socket.ping();
+            } catch {
+              closeQuietly(socket, 1011, "Ping failure");
+            }
+          }, deps.wsPingIntervalMs);
+
+          pingTimer.unref?.();
+
+          log("info", "Heartbeat process connected", {
+            device_id: hello.device_id,
+            version: hello.version,
+            hostname: hello.hostname,
+          });
+          return;
+        }
+
+        if (!activeDeviceId) {
+          closeQuietly(socket, 4003, "Authentication state error");
+          return;
+        }
+
+        const heartbeat = asHeartbeatMessage(payload);
+        if (!heartbeat) {
+          closeQuietly(socket, 4004, "Expected heartbeat message");
+          return;
+        }
+
+        if (heartbeat.device_id !== activeDeviceId) {
+          closeQuietly(socket, 4003, "Device mismatch");
+          return;
+        }
+
+        deps.registry.markHeartbeatProcess(activeDeviceId);
+        deps.db.touchHeartbeatProcess(activeDeviceId);
+        safeSendJson(socket, { kind: "heartbeat_ack", server_time: new Date().toISOString() });
+      } catch (error) {
+        log("error", "Unhandled heartbeat websocket error", {
+          device_id: activeDeviceId ?? "unknown",
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        closeQuietly(socket, 1011, "Internal error");
+      }
+    });
+
+    socket.on("close", () => {
+      clearTimeout(authTimer);
+      if (pingTimer) {
+        clearInterval(pingTimer);
+      }
+
+      if (!activeDeviceId) {
+        return;
+      }
+
+      const stillCurrent = deps.registry.isCurrentHeartbeatSocket(activeDeviceId, socket);
+      if (!stillCurrent) {
+        return;
+      }
+
+      deps.registry.disconnectHeartbeatProcess(activeDeviceId);
+      deps.db.markHeartbeatProcessOffline(activeDeviceId);
+      deps.eventHub.publish("device_status", {
+        device_id: activeDeviceId,
+        status: "offline",
+        subprocess: "heartbeat",
+      });
+
+      log("info", "Heartbeat process disconnected", {
+        device_id: activeDeviceId,
+      });
+    });
+
+    socket.on("error", (error) => {
+      log("warn", "Heartbeat socket error", {
         device_id: activeDeviceId ?? "unknown",
         error: error instanceof Error ? error.message : String(error),
       });
