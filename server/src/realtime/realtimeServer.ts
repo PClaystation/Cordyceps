@@ -309,6 +309,15 @@ function isValidDeviceId(value: string): boolean {
   return /^[a-z0-9_-]{2,32}$/.test(value);
 }
 
+function normalizeDroneRole(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return /^[1-5]$/.test(trimmed) ? trimmed : null;
+}
+
 function asHelloMessage(value: Record<string, unknown>): AgentHelloMessage | null {
   if (value.kind !== "hello") {
     return null;
@@ -386,6 +395,16 @@ function asHeartbeatProcessHelloMessage(value: Record<string, unknown>): Heartbe
     version,
     hostname,
     username,
+    subprocess: value.subprocess === "drone" ? "drone" : "heartbeat",
+    role: normalizeDroneRole(value.role) ?? undefined,
+  };
+}
+
+function makeAckPayload(kind: "hello_ack" | "heartbeat_ack", droneTargetCount: number): Record<string, unknown> {
+  return {
+    kind,
+    server_time: new Date().toISOString(),
+    drone_target_count: droneTargetCount,
   };
 }
 
@@ -539,10 +558,7 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
             device_info: hello.device_info ?? null,
           });
 
-          safeSendJson(socket, {
-            kind: "hello_ack",
-            server_time: new Date().toISOString(),
-          });
+          safeSendJson(socket, makeAckPayload("hello_ack", deps.db.getDroneTargetCount(hello.device_id)));
 
           deps.queuedUpdateDispatcher.kick(hello.device_id);
 
@@ -618,7 +634,7 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
 
           deps.registry.markHeartbeat(activeDeviceId);
           deps.db.touchHeartbeat(activeDeviceId);
-          safeSendJson(socket, { kind: "heartbeat_ack", server_time: new Date().toISOString() });
+          safeSendJson(socket, makeAckPayload("heartbeat_ack", deps.db.getDroneTargetCount(activeDeviceId)));
           return;
         }
 
@@ -713,6 +729,8 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
 
     let authenticated = false;
     let activeDeviceId: string | null = null;
+    let activeSubprocess: "heartbeat" | "drone" = "heartbeat";
+    let activeDroneRole: string | null = null;
     let pingTimer: NodeJS.Timeout | null = null;
 
     const authTimer = setTimeout(() => {
@@ -750,36 +768,52 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
 
           authenticated = true;
           activeDeviceId = hello.device_id;
+          activeSubprocess = hello.subprocess === "drone" ? "drone" : "heartbeat";
+          activeDroneRole = activeSubprocess === "drone" ? normalizeDroneRole(hello.role) : null;
           clearTimeout(authTimer);
 
-          deps.registry.registerHeartbeatProcess({
-            deviceId: hello.device_id,
-            socket,
-            version: hello.version,
-            hostname: hello.hostname,
-            username: hello.username,
-          });
+          if (activeSubprocess === "drone") {
+            if (!activeDroneRole) {
+              closeQuietly(socket, 4003, "Invalid drone role");
+              return;
+            }
 
-          deps.db.markHeartbeatProcessOnline({
-            deviceId: hello.device_id,
-            version: hello.version,
-            hostname: hello.hostname,
-            username: hello.username,
-          });
+            deps.registry.registerDroneProcess({
+              deviceId: hello.device_id,
+              role: activeDroneRole,
+              socket,
+              version: hello.version,
+              hostname: hello.hostname,
+              username: hello.username,
+            });
+          } else {
+            deps.registry.registerHeartbeatProcess({
+              deviceId: hello.device_id,
+              socket,
+              version: hello.version,
+              hostname: hello.hostname,
+              username: hello.username,
+            });
+
+            deps.db.markHeartbeatProcessOnline({
+              deviceId: hello.device_id,
+              version: hello.version,
+              hostname: hello.hostname,
+              username: hello.username,
+            });
+          }
 
           deps.eventHub.publish("device_status", {
             device_id: hello.device_id,
             status: "online",
-            subprocess: "heartbeat",
+            subprocess: activeSubprocess,
+            ...(activeDroneRole ? { role: activeDroneRole } : {}),
             version: hello.version,
             hostname: hello.hostname,
             username: hello.username,
           });
 
-          safeSendJson(socket, {
-            kind: "hello_ack",
-            server_time: new Date().toISOString(),
-          });
+          safeSendJson(socket, makeAckPayload("hello_ack", deps.db.getDroneTargetCount(hello.device_id)));
 
           pingTimer = setInterval(() => {
             if (!isSocketOpen(socket) || typeof socket.ping !== "function") {
@@ -795,8 +829,9 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
 
           pingTimer.unref?.();
 
-          log("info", "Heartbeat process connected", {
+          log("info", activeSubprocess === "drone" ? "Drone process connected" : "Heartbeat process connected", {
             device_id: hello.device_id,
+            ...(activeDroneRole ? { role: activeDroneRole } : {}),
             version: hello.version,
             hostname: hello.hostname,
           });
@@ -819,12 +854,24 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
           return;
         }
 
-        deps.registry.markHeartbeatProcess(activeDeviceId);
-        deps.db.touchHeartbeatProcess(activeDeviceId);
-        safeSendJson(socket, { kind: "heartbeat_ack", server_time: new Date().toISOString() });
+        if (activeSubprocess === "drone") {
+          if (!activeDroneRole) {
+            closeQuietly(socket, 4003, "Drone role missing");
+            return;
+          }
+
+          deps.registry.markDroneProcess(activeDeviceId, activeDroneRole);
+        } else {
+          deps.registry.markHeartbeatProcess(activeDeviceId);
+          deps.db.touchHeartbeatProcess(activeDeviceId);
+        }
+
+        safeSendJson(socket, makeAckPayload("heartbeat_ack", deps.db.getDroneTargetCount(activeDeviceId)));
       } catch (error) {
         log("error", "Unhandled heartbeat websocket error", {
           device_id: activeDeviceId ?? "unknown",
+          subprocess: activeSubprocess,
+          ...(activeDroneRole ? { role: activeDroneRole } : {}),
           error: error instanceof Error ? error.message : String(error),
         });
 
@@ -842,27 +889,39 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
         return;
       }
 
-      const stillCurrent = deps.registry.isCurrentHeartbeatSocket(activeDeviceId, socket);
+      const stillCurrent =
+        activeSubprocess === "drone" && activeDroneRole
+          ? deps.registry.isCurrentDroneSocket(activeDeviceId, activeDroneRole, socket)
+          : deps.registry.isCurrentHeartbeatSocket(activeDeviceId, socket);
       if (!stillCurrent) {
         return;
       }
 
-      deps.registry.disconnectHeartbeatProcess(activeDeviceId);
-      deps.db.markHeartbeatProcessOffline(activeDeviceId);
+      if (activeSubprocess === "drone" && activeDroneRole) {
+        deps.registry.disconnectDroneProcess(activeDeviceId, activeDroneRole);
+      } else {
+        deps.registry.disconnectHeartbeatProcess(activeDeviceId);
+        deps.db.markHeartbeatProcessOffline(activeDeviceId);
+      }
+
       deps.eventHub.publish("device_status", {
         device_id: activeDeviceId,
         status: "offline",
-        subprocess: "heartbeat",
+        subprocess: activeSubprocess,
+        ...(activeDroneRole ? { role: activeDroneRole } : {}),
       });
 
-      log("info", "Heartbeat process disconnected", {
+      log("info", activeSubprocess === "drone" ? "Drone process disconnected" : "Heartbeat process disconnected", {
         device_id: activeDeviceId,
+        ...(activeDroneRole ? { role: activeDroneRole } : {}),
       });
     });
 
     socket.on("error", (error) => {
       log("warn", "Heartbeat socket error", {
         device_id: activeDeviceId ?? "unknown",
+        subprocess: activeSubprocess,
+        ...(activeDroneRole ? { role: activeDroneRole } : {}),
         error: error instanceof Error ? error.message : String(error),
       });
     });

@@ -1054,6 +1054,32 @@ function getHeartbeatProcessRecord(deviceLike) {
   return heartbeat;
 }
 
+function getDroneProcessRecords(deviceLike) {
+  const subprocesses = deviceLike && typeof deviceLike === "object" ? deviceLike.subprocesses : null;
+  const drones = subprocesses && typeof subprocesses === "object" ? subprocesses.drones : null;
+  if (!Array.isArray(drones)) {
+    return [];
+  }
+
+  return drones
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .sort((left, right) => String(left.role || "").localeCompare(String(right.role || ""), undefined, { numeric: true }));
+}
+
+function getDroneFleetStatus(deviceLike) {
+  const drones = getDroneProcessRecords(deviceLike);
+  const targetCount = Number.parseInt(String(deviceLike?.drone_target_count ?? 5), 10);
+  return {
+    activeCount: drones.length,
+    targetCount: Number.isFinite(targetCount) ? Math.min(5, Math.max(1, targetCount)) : 5,
+    roles: drones.map((entry) => String(entry.role || "").trim()).filter(Boolean),
+  };
+}
+
+function isDProfileDevice(deviceLike) {
+  return String(deviceLike?.profile || "").trim().toLowerCase() === "d";
+}
+
 function formatInspectValue(value) {
   if (value === null || value === undefined || value === "") {
     return "n/a";
@@ -1193,6 +1219,7 @@ function renderDeviceInspectView(payload) {
   const deviceStatus = String(device.status || "unknown").toLowerCase();
   const heartbeatProcess = getHeartbeatProcessRecord(device);
   const heartbeatStatus = String(heartbeatProcess?.status || "offline").toLowerCase();
+  const droneFleet = getDroneFleetStatus(device);
   const title = displayName || deviceId || "unknown-device";
 
   if (deviceInspectTitle) {
@@ -1228,10 +1255,10 @@ function renderDeviceInspectView(payload) {
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.textContent = "Delete Device Record";
-  const hasActiveProcess = deviceStatus === "online" || heartbeatStatus === "online";
+  const hasActiveProcess = deviceStatus === "online" || heartbeatStatus === "online" || droneFleet.activeCount > 0;
   deleteButton.disabled = !normalizedDeviceId || hasActiveProcess;
   if (hasActiveProcess) {
-    deleteButton.title = "The agent or heartbeat process is online. Disconnect both before deleting the saved record.";
+    deleteButton.title = "The agent, heartbeat process, or a drone process is online. Disconnect them before deleting the saved record.";
   }
   deleteButton.addEventListener("click", async () => {
     if (!normalizedDeviceId) {
@@ -1295,6 +1322,56 @@ function renderDeviceInspectView(payload) {
       { key: "Username", value: heartbeatProcess?.username || "n/a" },
     ]),
   );
+
+  if (isDProfileDevice(device)) {
+    const droneControl = document.createElement("div");
+    droneControl.className = "device-inspect-grid";
+
+    droneControl.appendChild(
+      renderInspectKeyValueGrid([
+        { key: "Active drones", value: `${droneFleet.activeCount}/${droneFleet.targetCount}` },
+        { key: "Active roles", value: droneFleet.roles.length > 0 ? droneFleet.roles.join(", ") : "none" },
+        { key: "Target count", value: droneFleet.targetCount },
+      ]),
+    );
+
+    const droneForm = document.createElement("div");
+    droneForm.className = "inline-control";
+
+    const droneSelect = document.createElement("select");
+    for (let count = 1; count <= 5; count += 1) {
+      const option = document.createElement("option");
+      option.value = String(count);
+      option.textContent = `${count}`;
+      if (count === droneFleet.targetCount) {
+        option.selected = true;
+      }
+      droneSelect.appendChild(option);
+    }
+
+    const droneSaveButton = document.createElement("button");
+    droneSaveButton.type = "button";
+    droneSaveButton.textContent = "Save Target";
+    droneSaveButton.addEventListener("click", async () => {
+      const defaultLabel = droneSaveButton.textContent;
+      droneSaveButton.disabled = true;
+      droneSaveButton.textContent = "Saving...";
+      try {
+        await saveDroneTargetCount(normalizedDeviceId, droneSelect.value);
+      } catch (error) {
+        setResult(error instanceof Error ? error.message : String(error), { isError: true });
+      } finally {
+        droneSaveButton.disabled = false;
+        droneSaveButton.textContent = defaultLabel;
+      }
+    });
+
+    droneForm.appendChild(droneSelect);
+    droneForm.appendChild(droneSaveButton);
+    droneControl.appendChild(droneForm);
+
+    appendDeviceInspectSection("Drone Fleet", droneControl);
+  }
 
   appendDeviceInspectSection("Capabilities", renderInspectPills(device.capabilities, "no capabilities reported"));
 
@@ -1445,6 +1522,7 @@ function renderDeviceCards(devices) {
     const version = String(device.version || "").trim();
     const heartbeatProcess = getHeartbeatProcessRecord(device);
     const heartbeatStatus = String(heartbeatProcess?.status || "offline").trim().toLowerCase();
+    const droneFleet = getDroneFleetStatus(device);
 
     const card = document.createElement("article");
     card.className = "device-card";
@@ -1499,6 +1577,61 @@ function renderDeviceCards(devices) {
     heartbeatMeta.appendChild(heartbeatSeen);
     card.appendChild(heartbeatMeta);
 
+    if (isDProfileDevice(device)) {
+      const droneMeta = document.createElement("div");
+      droneMeta.className = "device-subentity device-drone-tab";
+
+      const droneLabel = document.createElement("span");
+      droneLabel.className = "muted";
+      droneLabel.textContent = "Restore drones";
+
+      const dronePill = document.createElement("span");
+      dronePill.className = `device-status ${droneFleet.activeCount > 0 ? "online" : "offline"}`;
+      dronePill.textContent = `${droneFleet.activeCount} active`;
+
+      const droneTarget = document.createElement("span");
+      droneTarget.className = "muted";
+      droneTarget.textContent = `target ${droneFleet.targetCount}`;
+
+      const droneSelect = document.createElement("select");
+      droneSelect.className = "device-inline-select";
+      for (let count = 1; count <= 5; count += 1) {
+        const option = document.createElement("option");
+        option.value = String(count);
+        option.textContent = `${count}`;
+        if (count === droneFleet.targetCount) {
+          option.selected = true;
+        }
+        droneSelect.appendChild(option);
+      }
+
+      const droneSaveButton = document.createElement("button");
+      droneSaveButton.type = "button";
+      droneSaveButton.className = "device-inline-button";
+      droneSaveButton.textContent = "Set";
+      droneSaveButton.addEventListener("click", async () => {
+        const defaultLabel = droneSaveButton.textContent;
+        droneSaveButton.disabled = true;
+        droneSaveButton.textContent = "Saving...";
+        try {
+          await saveDroneTargetCount(deviceId, droneSelect.value);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setResult(message, { isError: true });
+        } finally {
+          droneSaveButton.disabled = false;
+          droneSaveButton.textContent = defaultLabel;
+        }
+      });
+
+      droneMeta.appendChild(droneLabel);
+      droneMeta.appendChild(dronePill);
+      droneMeta.appendChild(droneTarget);
+      droneMeta.appendChild(droneSelect);
+      droneMeta.appendChild(droneSaveButton);
+      card.appendChild(droneMeta);
+    }
+
     card.appendChild(meta);
     card.appendChild(renderCapabilityChips(device.capabilities));
 
@@ -1532,9 +1665,9 @@ function renderDeviceCards(devices) {
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.textContent = "Delete Record";
-    if (status === "online" || heartbeatStatus === "online") {
+    if (status === "online" || heartbeatStatus === "online" || droneFleet.activeCount > 0) {
       deleteButton.disabled = true;
-      deleteButton.title = "The agent or heartbeat process is online. Disconnect both before deleting the saved record.";
+      deleteButton.title = "The agent, heartbeat process, or a drone process is online. Disconnect them before deleting the saved record.";
     }
     deleteButton.addEventListener("click", async () => {
       if (!deviceId) {
@@ -1840,6 +1973,26 @@ async function renameDevice() {
   });
   await loadDevices({ silent: true });
   setResult(data, { requestId: deviceId, latencyMs });
+}
+
+async function saveDroneTargetCount(deviceId, targetCount) {
+  const normalizedDeviceId = normalizeActionText(deviceId);
+  const parsedTargetCount = Number.parseInt(String(targetCount), 10);
+  if (!normalizedDeviceId) {
+    throw new Error("Device ID is required.");
+  }
+  if (!Number.isFinite(parsedTargetCount) || parsedTargetCount < 1 || parsedTargetCount > 5) {
+    throw new Error("Drone target count must be between 1 and 5.");
+  }
+
+  const { data, latencyMs } = await apiRequest(`/api/devices/${encodeURIComponent(normalizedDeviceId)}/drone-target`, {
+    drone_target_count: parsedTargetCount,
+  }, { method: "PUT" });
+  await loadDevices({ silent: true });
+  if (inspectedDeviceId === normalizedDeviceId) {
+    await inspectDevice(normalizedDeviceId, { silent: true });
+  }
+  setResult(data, { requestId: normalizedDeviceId, latencyMs });
 }
 
 async function saveDeviceAlias() {

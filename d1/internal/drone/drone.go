@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,16 +20,21 @@ import (
 	"time"
 
 	"github.com/charliearnerstal/jarvis/d1/internal/background"
+	"github.com/charliearnerstal/jarvis/d1/internal/config"
 	"github.com/charliearnerstal/jarvis/d1/internal/instance"
+	"github.com/charliearnerstal/jarvis/d1/internal/protocol"
 	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
 	"github.com/charliearnerstal/jarvis/d1/internal/startup"
+	"github.com/gorilla/websocket"
 )
 
 const (
-	reconcileBaseInterval = 4 * time.Second
-	reconcileJitterMax    = 2 * time.Second
-	startupRefreshPeriod  = 15 * time.Minute
-	restoreClaimTTL       = 20 * time.Second
+	reconcileBaseInterval   = 4 * time.Second
+	reconcileJitterMax      = 2 * time.Second
+	startupRefreshPeriod    = 15 * time.Minute
+	restoreClaimTTL         = 20 * time.Second
+	initialHeartbeatBackoff = 2 * time.Second
+	maxHeartbeatBackoff     = 1 * time.Minute
 )
 
 var (
@@ -108,6 +114,13 @@ func Run(opts Options) error {
 		}
 	}()
 
+	if !droneRoleEnabled(paths, role) {
+		if err := disableStartupPersistence(paths, role); err != nil {
+			log.Printf("warning: disable drone startup persistence failed: %v", err)
+		}
+		return nil
+	}
+
 	if err := ensureStartupPersistence(executablePath, paths, role); err != nil {
 		log.Printf("warning: drone startup persistence failed: %v", err)
 	}
@@ -119,6 +132,8 @@ func Run(opts Options) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	go superviseDroneHeartbeat(ctx, paths.ConfigPath, role, strings.TrimSpace(opts.Version))
+
 	nextStartupRepair := timeNow().Add(startupRefreshPeriod)
 
 	for {
@@ -129,6 +144,13 @@ func Run(opts Options) error {
 			timer.Stop()
 			return nil
 		case <-timer.C:
+		}
+
+		if !droneRoleEnabled(paths, role) {
+			if err := disableStartupPersistence(paths, role); err != nil {
+				log.Printf("warning: disable drone startup persistence failed: %v", err)
+			}
+			return nil
 		}
 
 		if timeNow().After(nextStartupRepair) {
@@ -168,6 +190,7 @@ func installAndRelaunchIfNeeded(executablePath string, paths resilience.Paths, r
 }
 
 func reconcileFleet(paths resilience.Paths, selfRole string, selfExecutablePath string, version string) error {
+	targetCount := desiredDroneTargetCount(paths)
 	trusted, err := loadTrustedHashes(paths, selfExecutablePath, version)
 	if err != nil {
 		return err
@@ -184,6 +207,9 @@ func reconcileFleet(paths resilience.Paths, selfRole string, selfExecutablePath 
 	}
 
 	for _, role := range resilience.DroneRoles() {
+		if !droneRoleWithinTarget(role, targetCount) {
+			continue
+		}
 		if err := ensureDroneRole(paths, selfRole, selfExecutablePath, trusted, role); err != nil {
 			return err
 		}
@@ -522,6 +548,34 @@ func dronePersistenceMode(role string) persistenceMode {
 	}
 }
 
+func disableStartupPersistence(paths resilience.Paths, role string) error {
+	spec := droneRegistrationSpec(resilience.DroneExecutablePath(paths, role), paths, role)
+	return startup.DisableRegistration(spec)
+}
+
+func desiredDroneTargetCount(paths resilience.Paths) int {
+	cfg, err := config.Load(paths.ConfigPath)
+	if err != nil {
+		return config.NormalizeDroneTargetCount(5)
+	}
+
+	return config.NormalizeDroneTargetCount(cfg.DroneTargetCount)
+}
+
+func droneRoleWithinTarget(role string, targetCount int) bool {
+	normalizedRole := resilience.NormalizeDroneRole(role)
+	if normalizedRole == "" {
+		return false
+	}
+
+	index := int(normalizedRole[0] - '0')
+	return index <= config.NormalizeDroneTargetCount(targetCount)
+}
+
+func droneRoleEnabled(paths resilience.Paths, role string) bool {
+	return droneRoleWithinTarget(role, desiredDroneTargetCount(paths))
+}
+
 func withRestoreClaim(paths resilience.Paths, role string, fn func() error) error {
 	claimPath := resilience.DroneRestoreClaimPath(paths, role)
 	if err := os.MkdirAll(filepath.Dir(claimPath), 0o700); err != nil {
@@ -567,6 +621,234 @@ func recordEvent(paths resilience.Paths, event journalEvent) {
 		_, _ = file.Write(append(payload, '\n'))
 		_ = file.Close()
 	}
+}
+
+func superviseDroneHeartbeat(ctx context.Context, cfgPath string, role string, version string) {
+	backoff := initialHeartbeatBackoff
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		cfg, err := config.Load(cfgPath)
+		if err != nil {
+			log.Printf("drone heartbeat config unavailable: %v", err)
+			if !waitForHeartbeatRetry(ctx, backoff) {
+				return
+			}
+			backoff = nextHeartbeatBackoff(backoff)
+			continue
+		}
+
+		if cfg.HeartbeatSeconds <= 0 {
+			cfg.HeartbeatSeconds = 60
+		}
+
+		if err := runDroneHeartbeatSession(ctx, cfgPath, role, firstNonEmpty(strings.TrimSpace(version), strings.TrimSpace(cfg.Version), "0.1.0")); err != nil {
+			log.Printf("drone heartbeat session ended: %v", err)
+			if !waitForHeartbeatRetry(ctx, backoff) {
+				return
+			}
+			backoff = nextHeartbeatBackoff(backoff)
+			continue
+		}
+
+		return
+	}
+}
+
+func runDroneHeartbeatSession(ctx context.Context, cfgPath string, role string, version string) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+
+	wsURL, err := deriveHeartbeatWSURL(cfg.ServerBaseURL)
+	if err != nil {
+		return fmt.Errorf("derive heartbeat websocket URL: %w", err)
+	}
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 15 * time.Second,
+	}
+
+	conn, resp, err := dialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		if resp != nil {
+			return fmt.Errorf("dial drone heartbeat websocket: %s", resp.Status)
+		}
+		return fmt.Errorf("dial drone heartbeat websocket: %w", err)
+	}
+	defer conn.Close()
+
+	conn.SetReadLimit(16 * 1024)
+	extendReadDeadline := func() error {
+		return conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+	}
+	if err := extendReadDeadline(); err != nil {
+		return fmt.Errorf("set initial drone heartbeat read deadline: %w", err)
+	}
+	conn.SetPingHandler(func(appData string) error {
+		if err := extendReadDeadline(); err != nil {
+			return err
+		}
+
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(5*time.Second))
+	})
+	conn.SetPongHandler(func(string) error {
+		return extendReadDeadline()
+	})
+
+	hostname, username := currentIdentity()
+	hello := map[string]any{
+		"kind":       "heartbeat_hello",
+		"device_id":  cfg.DeviceID,
+		"token":      cfg.DeviceToken,
+		"version":    version,
+		"hostname":   hostname,
+		"username":   username,
+		"subprocess": "drone",
+		"role":       resilience.NormalizeDroneRole(role),
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
+	if err := conn.WriteJSON(hello); err != nil {
+		return fmt.Errorf("send drone heartbeat hello: %w", err)
+	}
+
+	readErrCh := make(chan error, 1)
+	go func() {
+		for {
+			if err := extendReadDeadline(); err != nil {
+				readErrCh <- err
+				return
+			}
+
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				readErrCh <- err
+				return
+			}
+			if err := syncDroneTargetCount(cfgPath, payload); err != nil {
+				log.Printf("warning: drone target sync failed: %v", err)
+			}
+		}
+	}()
+
+	ticker := time.NewTicker(time.Duration(cfg.HeartbeatSeconds) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(3*time.Second))
+			return nil
+		case err := <-readErrCh:
+			return err
+		case <-ticker.C:
+			payload := protocol.HeartbeatMessage{
+				Kind:     "heartbeat",
+				DeviceID: cfg.DeviceID,
+				SentAt:   time.Now().UTC().Format(time.RFC3339),
+			}
+			conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
+			if err := conn.WriteJSON(payload); err != nil {
+				return fmt.Errorf("send drone heartbeat: %w", err)
+			}
+		}
+	}
+}
+
+func syncDroneTargetCount(cfgPath string, payload []byte) error {
+	var ack protocol.AckMessage
+	if err := json.Unmarshal(payload, &ack); err != nil {
+		return err
+	}
+
+	if ack.DroneTargetCount <= 0 {
+		return nil
+	}
+
+	_, err := config.UpdateDroneTargetCount(cfgPath, ack.DroneTargetCount)
+	return err
+}
+
+func waitForHeartbeatRetry(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func nextHeartbeatBackoff(current time.Duration) time.Duration {
+	next := current * 2
+	if next > maxHeartbeatBackoff {
+		return maxHeartbeatBackoff
+	}
+	return next
+}
+
+func currentIdentity() (string, string) {
+	hostname, _ := os.Hostname()
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		hostname = "unknown-host"
+	}
+
+	username := strings.TrimSpace(os.Getenv("USERNAME"))
+	if username == "" {
+		username = strings.TrimSpace(os.Getenv("USER"))
+	}
+	if username == "" {
+		username = "unknown-user"
+	}
+
+	return hostname, username
+}
+
+func deriveHeartbeatWSURL(baseURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return "", err
+	}
+
+	switch parsed.Scheme {
+	case "https":
+		parsed.Scheme = "wss"
+	case "http":
+		parsed.Scheme = "ws"
+	case "wss", "ws":
+	default:
+		return "", fmt.Errorf("unsupported server URL scheme %q", parsed.Scheme)
+	}
+
+	basePath := strings.TrimRight(parsed.Path, "/")
+	if basePath == "" {
+		parsed.Path = "/ws/device-heartbeat"
+	} else {
+		parsed.Path = basePath + "/ws/device-heartbeat"
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func saveJSON(path string, value any) error {

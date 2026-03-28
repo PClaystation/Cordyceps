@@ -16,6 +16,7 @@ type Config struct {
 	ServerBaseURL    string `json:"server_base_url"`
 	WSURL            string `json:"ws_url"`
 	HeartbeatSeconds int    `json:"heartbeat_seconds"`
+	DroneTargetCount int    `json:"drone_target_count"`
 	Version          string `json:"version"`
 }
 
@@ -62,6 +63,7 @@ func Load(path string) (*Config, error) {
 	if cfg.HeartbeatSeconds <= 0 {
 		cfg.HeartbeatSeconds = 60
 	}
+	cfg.DroneTargetCount = NormalizeDroneTargetCount(cfg.DroneTargetCount)
 
 	if cfg.DeviceToken == "" {
 		return nil, errors.New("config missing device_token")
@@ -84,6 +86,7 @@ func Save(path string, cfg *Config) error {
 	if cfg.HeartbeatSeconds <= 0 {
 		cfg.HeartbeatSeconds = 60
 	}
+	cfg.DroneTargetCount = NormalizeDroneTargetCount(cfg.DroneTargetCount)
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -105,6 +108,35 @@ func Save(path string, cfg *Config) error {
 	}
 
 	return nil
+}
+
+func UpdateDroneTargetCount(path string, targetCount int) (bool, error) {
+	cfg, err := Load(path)
+	if err != nil {
+		return false, err
+	}
+
+	normalized := NormalizeDroneTargetCount(targetCount)
+	if cfg.DroneTargetCount == normalized {
+		return false, nil
+	}
+
+	cfg.DroneTargetCount = normalized
+	if err := Save(path, cfg); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func NormalizeDroneTargetCount(value int) int {
+	if value < 1 {
+		return 1
+	}
+	if value > 5 {
+		return 5
+	}
+	return value
 }
 
 func SanitizeDeviceID(input string) string {

@@ -733,6 +733,9 @@ func runSession(ctx context.Context, cfg *config.Config, cfgPath string, paths r
 					return
 				}
 			case "hello_ack", "heartbeat_ack":
+				if err := syncDroneTargetCount(cfgPath, payload); err != nil {
+					log.Printf("warning: sync drone target count failed: %v", err)
+				}
 				if err := markHealthy(paths, slotName, cfg); err != nil {
 					log.Printf("warning: update guardian health state failed: %v", err)
 				}
@@ -749,6 +752,20 @@ func runSession(ctx context.Context, cfg *config.Config, cfgPath string, paths r
 	case err := <-errorCh:
 		return err
 	}
+}
+
+func syncDroneTargetCount(cfgPath string, payload []byte) error {
+	var ack protocol.AckMessage
+	if err := json.Unmarshal(payload, &ack); err != nil {
+		return err
+	}
+
+	if ack.DroneTargetCount <= 0 {
+		return nil
+	}
+
+	_, err := config.UpdateDroneTargetCount(cfgPath, ack.DroneTargetCount)
+	return err
 }
 
 func executeUpdateCommand(

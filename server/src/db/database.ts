@@ -2,8 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { constantTimeEqual } from "../auth/auth";
-import type { DeviceInfoRecord, DeviceRecord, DeviceSubprocessRecord } from "../types/protocol";
+import type { DeviceDroneRecord, DeviceInfoRecord, DeviceRecord, DeviceSubprocessRecord } from "../types/protocol";
 import { sha256Hex } from "../utils/crypto";
+
+const DEFAULT_DRONE_TARGET_COUNT = 5;
 
 export interface EnrollDeviceInput {
   deviceId: string;
@@ -138,6 +140,7 @@ interface DeviceRow {
   heartbeat_version: string | null;
   heartbeat_hostname: string | null;
   heartbeat_username: string | null;
+  drone_target_count: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -238,6 +241,21 @@ function mapHeartbeatSubprocess(row: DeviceRow): DeviceSubprocessRecord {
   };
 }
 
+function normalizeDroneTargetCount(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const rounded = Math.floor(value);
+    if (rounded >= 1 && rounded <= 5) {
+      return rounded;
+    }
+  }
+
+  return DEFAULT_DRONE_TARGET_COUNT;
+}
+
+function emptyDroneSubprocesses(): DeviceDroneRecord[] {
+  return [];
+}
+
 export class Database {
   private readonly db: InstanceType<typeof BetterSqlite3>;
 
@@ -271,6 +289,7 @@ export class Database {
         heartbeat_version TEXT,
         heartbeat_hostname TEXT,
         heartbeat_username TEXT,
+        drone_target_count INTEGER NOT NULL DEFAULT 5,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -401,6 +420,7 @@ export class Database {
     this.ensureColumn("devices", "heartbeat_version", "TEXT");
     this.ensureColumn("devices", "heartbeat_hostname", "TEXT");
     this.ensureColumn("devices", "heartbeat_username", "TEXT");
+    this.ensureColumn("devices", "drone_target_count", "INTEGER NOT NULL DEFAULT 5");
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -448,8 +468,10 @@ export class Database {
       username: row.username,
       capabilities: parseJsonArray(row.capabilities_json),
       device_info: row.device_info_json ? parseJsonObject(row.device_info_json) : null,
+      drone_target_count: normalizeDroneTargetCount(row.drone_target_count),
       subprocesses: {
         heartbeat: mapHeartbeatSubprocess(row),
+        drones: emptyDroneSubprocesses(),
       },
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -611,7 +633,7 @@ export class Database {
   public getDevice(deviceId: string): DeviceRecord | null {
     const row = this.db
       .prepare(
-        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, heartbeat_status, heartbeat_last_seen, heartbeat_connected_at, heartbeat_version, heartbeat_hostname, heartbeat_username, created_at, updated_at FROM devices WHERE device_id = ?",
+        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, heartbeat_status, heartbeat_last_seen, heartbeat_connected_at, heartbeat_version, heartbeat_hostname, heartbeat_username, drone_target_count, created_at, updated_at FROM devices WHERE device_id = ?",
       )
       .get(deviceId) as DeviceRow | undefined;
 
@@ -621,7 +643,7 @@ export class Database {
   public listDevices(): DeviceRecord[] {
     const rows = this.db
       .prepare(
-        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, heartbeat_status, heartbeat_last_seen, heartbeat_connected_at, heartbeat_version, heartbeat_hostname, heartbeat_username, created_at, updated_at FROM devices ORDER BY device_id ASC",
+        "SELECT device_id, display_name, status, last_seen, version, hostname, username, capabilities_json, device_info_json, heartbeat_status, heartbeat_last_seen, heartbeat_connected_at, heartbeat_version, heartbeat_hostname, heartbeat_username, drone_target_count, created_at, updated_at FROM devices ORDER BY device_id ASC",
       )
       .all() as DeviceRow[];
 
@@ -642,6 +664,34 @@ export class Database {
       .run({
         device_id: deviceId,
         display_name: displayName ?? null,
+        updated_at: now,
+      });
+
+    return result.changes > 0;
+  }
+
+  public getDroneTargetCount(deviceId: string): number {
+    const row = this.db
+      .prepare("SELECT drone_target_count FROM devices WHERE device_id = ?")
+      .get(deviceId) as { drone_target_count: number | null } | undefined;
+
+    return normalizeDroneTargetCount(row?.drone_target_count);
+  }
+
+  public updateDeviceDroneTargetCount(deviceId: string, targetCount: number): boolean {
+    const now = new Date().toISOString();
+    const result = this.db
+      .prepare(
+        `
+          UPDATE devices
+          SET drone_target_count = @drone_target_count,
+              updated_at = @updated_at
+          WHERE device_id = @device_id
+        `,
+      )
+      .run({
+        device_id: deviceId,
+        drone_target_count: normalizeDroneTargetCount(targetCount),
         updated_at: now,
       });
 
@@ -675,6 +725,7 @@ export class Database {
               heartbeat_version,
               heartbeat_hostname,
               heartbeat_username,
+              drone_target_count,
               created_at,
               updated_at
             FROM devices
@@ -699,6 +750,7 @@ export class Database {
             heartbeat_version: string | null;
             heartbeat_hostname: string | null;
             heartbeat_username: string | null;
+            drone_target_count: number | null;
             created_at: string;
             updated_at: string;
           }
@@ -734,6 +786,7 @@ export class Database {
               username,
               capabilities_json,
               device_info_json,
+              drone_target_count,
               created_at,
               updated_at
             ) VALUES (
@@ -747,6 +800,7 @@ export class Database {
               @username,
               @capabilities_json,
               @device_info_json,
+              @drone_target_count,
               @created_at,
               @updated_at
             )
@@ -762,6 +816,7 @@ export class Database {
           username: source.username,
           capabilities_json: source.capabilities_json ?? "[]",
           device_info_json: source.device_info_json,
+          drone_target_count: normalizeDroneTargetCount(source.drone_target_count),
           created_at: source.created_at,
           updated_at: now,
         });

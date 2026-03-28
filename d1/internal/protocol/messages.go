@@ -17,6 +17,12 @@ type HeartbeatMessage struct {
 	SentAt   string `json:"sent_at"`
 }
 
+type AckMessage struct {
+	Kind             string `json:"kind"`
+	ServerTime       string `json:"server_time"`
+	DroneTargetCount int    `json:"drone_target_count,omitempty"`
+}
+
 type CommandEnvelope struct {
 	Kind      string         `json:"kind"`
 	RequestID string         `json:"request_id"`

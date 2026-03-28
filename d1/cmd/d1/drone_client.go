@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charliearnerstal/jarvis/d1/internal/background"
+	"github.com/charliearnerstal/jarvis/d1/internal/config"
 	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
 )
 
@@ -16,7 +17,15 @@ func ensureRestoreDronesPresentAndRunning(agentExecutablePath string, paths resi
 		return nil
 	}
 
+	targetCount := 5
+	if cfg, err := config.Load(paths.ConfigPath); err == nil {
+		targetCount = config.NormalizeDroneTargetCount(cfg.DroneTargetCount)
+	}
+
 	for _, role := range resilience.DroneRoles() {
+		if int(resilience.NormalizeDroneRole(role)[0]-'0') > targetCount {
+			continue
+		}
 		sourcePath, err := discoverRestoreDroneSource(agentExecutablePath, role)
 		if err != nil {
 			return err

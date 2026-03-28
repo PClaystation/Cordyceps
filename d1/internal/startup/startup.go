@@ -225,7 +225,6 @@ func writeStartupFolderLauncher(name string, command string) error {
 	return os.WriteFile(path, []byte(body), 0o600)
 }
 
-
 func EnsureRegistration(spec RegistrationSpec) error {
 	if runtime.GOOS != "windows" {
 		return nil
@@ -319,6 +318,33 @@ func RepairRegistrationIfMissing(spec RegistrationSpec) error {
 
 	if len(repairErrors) > 0 {
 		return fmt.Errorf("repair startup launchers: %s", strings.Join(repairErrors, "; "))
+	}
+
+	return nil
+}
+
+func DisableRegistration(spec RegistrationSpec) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	errors := make([]string, 0, 5)
+	for _, taskName := range []string{spec.StartupName, spec.BootStartupName, spec.WatchdogStartupName} {
+		if err := deleteScheduledTask(taskName); err != nil {
+			errors = append(errors, err.Error())
+		}
+	}
+	for _, taskName := range spec.LegacyTaskNames {
+		if err := deleteScheduledTask(taskName); err != nil {
+			errors = append(errors, err.Error())
+		}
+	}
+	if err := deleteRunKey(spec.RunKeyName); err != nil {
+		errors = append(errors, err.Error())
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("disable startup launchers: %s", strings.Join(errors, "; "))
 	}
 
 	return nil
@@ -472,6 +498,30 @@ func removeScheduledTasks(taskNames []string) {
 	}
 }
 
+func deleteScheduledTask(taskName string) error {
+	if strings.TrimSpace(taskName) == "" {
+		return nil
+	}
+
+	cmd := exec.Command("schtasks", "/Delete", "/TN", taskName, "/F")
+	configureHiddenProcess(cmd)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(strings.ToLower(string(output)))
+	if strings.Contains(trimmed, "cannot find") || strings.Contains(trimmed, "does not exist") {
+		return nil
+	}
+
+	if trimmed == "" {
+		return fmt.Errorf("delete startup task %s: %w", taskName, err)
+	}
+
+	return fmt.Errorf("delete startup task %s: %w: %s", taskName, err, strings.TrimSpace(string(output)))
+}
+
 func runKeyExists(name string) (bool, error) {
 	cmd := exec.Command(
 		"reg",
@@ -523,6 +573,37 @@ func ensureRunKey(name string, command string) error {
 	}
 
 	return nil
+}
+
+func deleteRunKey(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
+
+	cmd := exec.Command(
+		"reg",
+		"delete",
+		`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
+		"/v",
+		name,
+		"/f",
+	)
+	configureHiddenProcess(cmd)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(strings.ToLower(string(output)))
+	if strings.Contains(trimmed, "unable to find") || strings.Contains(trimmed, "unable to find the specified registry key or value") {
+		return nil
+	}
+
+	if trimmed == "" {
+		return fmt.Errorf("delete startup run key %s: %w", name, err)
+	}
+
+	return fmt.Errorf("delete startup run key %s: %w: %s", name, err, strings.TrimSpace(string(output)))
 }
 
 func startupCommand(executablePath string) string {

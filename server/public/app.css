@@ -280,6 +280,26 @@ button.primary:active {
   font-size: 0.78rem;
 }
 
+.device-drone-tab {
+  align-items: center;
+}
+
+.device-inline-select,
+.device-inline-button {
+  width: auto;
+  min-width: 0;
+}
+
+.device-inline-select {
+  padding: 6px 8px;
+  font-size: 0.8rem;
+}
+
+.device-inline-button {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
+
 .device-status {
   display: inline-flex;
   align-items: center;
@@ -350,6 +370,19 @@ button.primary:active {
   margin-top: 8px;
   display: grid;
   gap: 8px;
+}
+
+.inline-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.inline-control select,
+.inline-control button {
+  width: auto;
+  min-width: 120px;
 }
 
 .inspect-kv-grid {

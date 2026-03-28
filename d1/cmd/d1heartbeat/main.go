@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/charliearnerstal/jarvis/d1/internal/config"
 	"github.com/charliearnerstal/jarvis/d1/internal/instance"
+	"github.com/charliearnerstal/jarvis/d1/internal/protocol"
 	"github.com/charliearnerstal/jarvis/d1/internal/startup"
 	"github.com/gorilla/websocket"
 )
@@ -140,7 +142,7 @@ func superviseHeartbeat(ctx context.Context, cfgPath string) error {
 			cfg.HeartbeatSeconds = 60
 		}
 
-		if err := runHeartbeatSession(ctx, cfg); err != nil {
+		if err := runHeartbeatSession(ctx, cfgPath, cfg); err != nil {
 			log.Printf("heartbeat session ended: %v", err)
 			if !waitForRetry(ctx, backoff) {
 				return nil
@@ -153,7 +155,7 @@ func superviseHeartbeat(ctx context.Context, cfgPath string) error {
 	}
 }
 
-func runHeartbeatSession(ctx context.Context, cfg *config.Config) error {
+func runHeartbeatSession(ctx context.Context, cfgPath string, cfg *config.Config) error {
 	wsURL, err := deriveHeartbeatWSURL(cfg.ServerBaseURL)
 	if err != nil {
 		return fmt.Errorf("derive heartbeat websocket URL: %w", err)
@@ -213,9 +215,13 @@ func runHeartbeatSession(ctx context.Context, cfg *config.Config) error {
 				return
 			}
 
-			if _, _, err := conn.ReadMessage(); err != nil {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
 				readErrCh <- err
 				return
+			}
+			if err := syncDroneTargetCount(cfgPath, payload); err != nil {
+				log.Printf("warning: heartbeat drone-target sync failed: %v", err)
 			}
 		}
 	}()
@@ -242,6 +248,20 @@ func runHeartbeatSession(ctx context.Context, cfg *config.Config) error {
 			}
 		}
 	}
+}
+
+func syncDroneTargetCount(cfgPath string, payload []byte) error {
+	var ack protocol.AckMessage
+	if err := json.Unmarshal(payload, &ack); err != nil {
+		return err
+	}
+
+	if ack.DroneTargetCount <= 0 {
+		return nil
+	}
+
+	_, err := config.UpdateDroneTargetCount(cfgPath, ack.DroneTargetCount)
+	return err
 }
 
 func deriveHeartbeatWSURL(baseURL string) (string, error) {

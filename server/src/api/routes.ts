@@ -74,6 +74,10 @@ interface RenameDeviceBody {
   display_name?: string;
 }
 
+interface DeviceDroneTargetBody {
+  drone_target_count?: unknown;
+}
+
 interface DeviceAppAliasesBody {
   aliases?: Array<{
     alias?: string;
@@ -152,6 +156,8 @@ const MAX_DEVICE_CONTROL_REASON_LEN = 240;
 const DEFAULT_LOCKDOWN_MINUTES = 30;
 const MIN_LOCKDOWN_MINUTES = 1;
 const MAX_LOCKDOWN_MINUTES = 240;
+const MIN_DRONE_TARGET_COUNT = 1;
+const MAX_DRONE_TARGET_COUNT = 5;
 const MAX_REVOKED_VERSIONS = 100;
 const DEFAULT_HISTORY_LIMIT = 100;
 const MAX_HISTORY_LIMIT = 500;
@@ -867,7 +873,11 @@ function withProfile<T extends { device_id: string; capabilities: string[] }>(de
 }
 
 function withHeartbeatSubprocess<
-  T extends { device_id: string; capabilities: string[]; subprocesses: { heartbeat: DeviceSubprocessRecord } },
+  T extends {
+    device_id: string;
+    capabilities: string[];
+    subprocesses: { heartbeat: DeviceSubprocessRecord; drones: Array<{ role: string }> };
+  },
 >(
   device: T,
   heartbeatProcess: ReturnType<DeviceRegistry["getHeartbeatProcess"]>,
@@ -888,6 +898,33 @@ function withHeartbeatSubprocess<
         hostname: heartbeatProcess.hostname,
         username: heartbeatProcess.username,
       },
+    },
+  };
+}
+
+function withDroneSubprocesses<
+  T extends {
+    device_id: string;
+    capabilities: string[];
+    subprocesses: { heartbeat: DeviceSubprocessRecord; drones: Array<{ role: string }> };
+  },
+>(
+  device: T,
+  droneProcesses: ReturnType<DeviceRegistry["getDroneProcesses"]>,
+): T {
+  return {
+    ...device,
+    subprocesses: {
+      ...device.subprocesses,
+      drones: droneProcesses.map((process) => ({
+        role: process.role,
+        status: "online",
+        last_seen: new Date(process.lastSeenAt).toISOString(),
+        connected_at: new Date(process.connectedAt).toISOString(),
+        version: process.version,
+        hostname: process.hostname,
+        username: process.username,
+      })),
     },
   };
 }
@@ -1078,6 +1115,14 @@ function asRenameDeviceBody(body: unknown): RenameDeviceBody {
   }
 
   return body as RenameDeviceBody;
+}
+
+function asDeviceDroneTargetBody(body: unknown): DeviceDroneTargetBody {
+  if (!body || typeof body !== "object") {
+    return {};
+  }
+
+  return body as DeviceDroneTargetBody;
 }
 
 function asDeviceAppAliasesBody(body: unknown): DeviceAppAliasesBody {
@@ -1314,6 +1359,26 @@ function normalizeOptionalText(value: unknown, maxLength: number): string | unde
   }
 
   return normalized.slice(0, maxLength);
+}
+
+function normalizeOptionalDroneTargetCount(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const parsed =
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.floor(value)
+      : Number.parseInt(asTrimmedString(value), 10);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  if (parsed < MIN_DRONE_TARGET_COUNT || parsed > MAX_DRONE_TARGET_COUNT) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function normalizeOptionalVersion(value: unknown): string | null {
@@ -1981,7 +2046,10 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
 
     const devices = deps.db.listDevices().map((device) => {
       const control = deps.db.getDeviceControl(device.device_id);
-      const hydrated = withHeartbeatSubprocess(device, deps.registry.getHeartbeatProcess(device.device_id));
+      const hydrated = withDroneSubprocesses(
+        withHeartbeatSubprocess(device, deps.registry.getHeartbeatProcess(device.device_id)),
+        deps.registry.getDroneProcesses(device.device_id),
+      );
       return {
         ...withProfile(hydrated),
         quarantine_enabled: control.quarantine_enabled,
@@ -2017,7 +2085,8 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
     const dbDevice = deps.db.getDevice(deviceId);
     const connected = deps.registry.get(deviceId);
     const heartbeatConnected = deps.registry.getHeartbeatProcess(deviceId);
-    if (!dbDevice && !connected && !heartbeatConnected) {
+    const droneProcesses = deps.registry.getDroneProcesses(deviceId);
+    if (!dbDevice && !connected && !heartbeatConnected && droneProcesses.length === 0) {
       reply.code(404).send({
         ok: false,
         message: `Unknown device: ${deviceId}`,
@@ -2036,6 +2105,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       username: connected?.username ?? null,
       capabilities: connected?.capabilities ?? [],
       device_info: connected?.deviceInfo ?? null,
+      drone_target_count: deps.db.getDroneTargetCount(deviceId),
       subprocesses: {
         heartbeat: {
           status: heartbeatConnected ? "online" : "offline",
@@ -2045,11 +2115,12 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
           hostname: heartbeatConnected?.hostname ?? null,
           username: heartbeatConnected?.username ?? null,
         },
+        drones: [],
       },
       created_at: "",
       updated_at: "",
     };
-    const hydratedDevice = withHeartbeatSubprocess(device, heartbeatConnected);
+    const hydratedDevice = withDroneSubprocesses(withHeartbeatSubprocess(device, heartbeatConnected), droneProcesses);
 
     const control = deps.db.getDeviceControl(deviceId);
     const aliases = deps.db.listDeviceAppAliases(deviceId);
@@ -2102,10 +2173,10 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       return;
     }
 
-    if (deps.registry.get(deviceId) || deps.registry.getHeartbeatProcess(deviceId)) {
+    if (deps.registry.get(deviceId) || deps.registry.getHeartbeatProcess(deviceId) || deps.registry.getDroneProcesses(deviceId).length > 0) {
       reply.code(409).send({
         ok: false,
-        message: `${deviceId} still has an active agent or heartbeat process. Disconnect it before deleting the record.`,
+        message: `${deviceId} still has an active agent, heartbeat process, or drone process. Disconnect it before deleting the record.`,
         error_code: "DEVICE_ONLINE",
       });
       return;
@@ -2165,6 +2236,74 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       ok: true,
       device: updated ? withProfile(updated) : null,
       message: displayName ? `Saved name for ${deviceId}` : `Cleared name for ${deviceId}`,
+    });
+  });
+
+  server.put("/api/devices/:deviceId/drone-target", async (request, reply) => {
+    if (!authorize(request, reply, deps, ["devices:write"])) {
+      return;
+    }
+
+    const params = request.params as { deviceId?: string } | undefined;
+    const deviceId = asTrimmedString(params?.deviceId).toLowerCase();
+    if (!deviceId || !/^[a-z0-9_-]{2,32}$/.test(deviceId)) {
+      reply.code(400).send({
+        ok: false,
+        message: "device_id must be 2-32 chars and use a-z, 0-9, _ or -",
+        error_code: "INVALID_DEVICE_ID",
+      });
+      return;
+    }
+
+    const known = deps.db.getDevice(deviceId) ?? deps.registry.get(deviceId);
+    if (!known) {
+      reply.code(404).send({
+        ok: false,
+        message: `Unknown device: ${deviceId}`,
+        error_code: "UNKNOWN_DEVICE",
+      });
+      return;
+    }
+
+    if (resolveDeviceProfile(deviceId, known.capabilities) !== "d") {
+      reply.code(400).send({
+        ok: false,
+        message: `${deviceId} is not a d-agent device`,
+        error_code: "INVALID_DEVICE_PROFILE",
+      });
+      return;
+    }
+
+    const body = asDeviceDroneTargetBody(request.body);
+    const droneTargetCount = normalizeOptionalDroneTargetCount(body.drone_target_count);
+    if (droneTargetCount === null) {
+      reply.code(400).send({
+        ok: false,
+        message: `drone_target_count must be an integer between ${MIN_DRONE_TARGET_COUNT} and ${MAX_DRONE_TARGET_COUNT}`,
+        error_code: "INVALID_DRONE_TARGET_COUNT",
+      });
+      return;
+    }
+
+    if (!deps.db.updateDeviceDroneTargetCount(deviceId, droneTargetCount)) {
+      reply.code(404).send({
+        ok: false,
+        message: `Unknown device: ${deviceId}`,
+        error_code: "UNKNOWN_DEVICE",
+      });
+      return;
+    }
+
+    const updated = deps.db.getDevice(deviceId);
+    reply.send({
+      ok: true,
+      device: updated ? withProfile(withDroneSubprocesses(
+        withHeartbeatSubprocess(updated, deps.registry.getHeartbeatProcess(deviceId)),
+        deps.registry.getDroneProcesses(deviceId),
+      )) : null,
+      device_id: deviceId,
+      drone_target_count: droneTargetCount,
+      message: `Saved drone target count for ${deviceId}`,
     });
   });
 

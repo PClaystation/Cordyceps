@@ -151,6 +151,8 @@ export interface HeartbeatProcessHelloMessage {
   version: string;
   hostname: string;
   username: string;
+  subprocess?: "heartbeat" | "drone";
+  role?: string;
 }
 
 export interface DeviceSubprocessRecord {
@@ -162,8 +164,13 @@ export interface DeviceSubprocessRecord {
   username: string | null;
 }
 
+export interface DeviceDroneRecord extends DeviceSubprocessRecord {
+  role: string;
+}
+
 export interface DeviceSubprocessesRecord {
   heartbeat: DeviceSubprocessRecord;
+  drones: DeviceDroneRecord[];
 }
 
 export interface CommandDispatchResult {
@@ -188,6 +195,7 @@ export interface DeviceRecord {
   username: string | null;
   capabilities: string[];
   device_info?: DeviceInfoRecord | null;
+  drone_target_count: number;
   subprocesses: DeviceSubprocessesRecord;
   profile?: AgentProfile;
   created_at: string;

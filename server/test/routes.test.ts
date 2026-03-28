@@ -1141,6 +1141,90 @@ test("device detail endpoint includes heartbeat subprocess state", async () => {
   }
 });
 
+test("device detail endpoint includes drone fleet state for d devices", async () => {
+  const harness = await createHarness();
+  const { server, db, registry, cleanup } = harness;
+
+  try {
+    db.enrollDevice({
+      deviceId: "d1",
+      tokenHash: sha256Hex("d1-token"),
+      displayName: "d1",
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+      capabilities: ["profile_d", "updater"],
+    });
+    db.updateDeviceDroneTargetCount("d1", 3);
+    registry.registerDroneProcess({
+      deviceId: "d1",
+      role: "1",
+      socket: new MockSocket(),
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+    });
+    registry.registerDroneProcess({
+      deviceId: "d1",
+      role: "2",
+      socket: new MockSocket(),
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+    });
+
+    const detail = await server.inject({
+      method: "GET",
+      url: "/api/devices/d1",
+      headers: authHeaders("owner-token"),
+    });
+
+    assert.equal(detail.statusCode, 200);
+    const body = detail.json();
+    assert.equal(body.device.profile, "d");
+    assert.equal(body.device.drone_target_count, 3);
+    assert.equal(body.device.subprocesses.drones.length, 2);
+    assert.equal(body.device.subprocesses.drones[0]?.role, "1");
+    assert.equal(body.device.subprocesses.drones[1]?.role, "2");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("drone target endpoint updates per-device d-agent target count", async () => {
+  const harness = await createHarness();
+  const { server, db, cleanup } = harness;
+
+  try {
+    db.enrollDevice({
+      deviceId: "d1",
+      tokenHash: sha256Hex("d1-token"),
+      displayName: "d1",
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+      capabilities: ["profile_d", "updater"],
+    });
+
+    const response = await server.inject({
+      method: "PUT",
+      url: "/api/devices/d1/drone-target",
+      headers: authHeaders("owner-token"),
+      payload: {
+        drone_target_count: 2,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.drone_target_count, 2);
+    assert.equal(db.getDroneTargetCount("d1"), 2);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("device delete endpoint removes offline device records", async () => {
   const harness = await createHarness();
   const { server, db, cleanup } = harness;
@@ -1222,6 +1306,46 @@ test("device delete endpoint rejects devices with an active heartbeat subprocess
     const response = await server.inject({
       method: "DELETE",
       url: "/api/devices/m1",
+      headers: {
+        authorization: "Bearer owner-token",
+      },
+    });
+
+    assert.equal(response.statusCode, 409);
+    const body = response.json();
+    assert.equal(body.error_code, "DEVICE_ONLINE");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("device delete endpoint rejects devices with an active drone subprocess", async () => {
+  const harness = await createHarness();
+  const { server, db, registry, cleanup } = harness;
+
+  try {
+    db.enrollDevice({
+      deviceId: "d1",
+      tokenHash: sha256Hex("d1-token"),
+      displayName: "d1",
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+      capabilities: ["profile_d", "updater"],
+    });
+    db.markDeviceOffline("d1");
+    registry.registerDroneProcess({
+      deviceId: "d1",
+      role: "1",
+      socket: new MockSocket(),
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+    });
+
+    const response = await server.inject({
+      method: "DELETE",
+      url: "/api/devices/d1",
       headers: {
         authorization: "Bearer owner-token",
       },
