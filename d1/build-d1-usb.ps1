@@ -228,7 +228,7 @@ try {
   foreach ($droneBuild in $droneBuildMatrix) {
     Write-Host "Built restore drone role $($droneBuild.Role): $($droneBuild.Output)"
   }
-  Write-Host "Usage on target PC: use install-d1-agent.ps1 so slot A, fallback, guardian, heartbeat companion, and five restore drones are installed together."
+  Write-Host "Usage on target PC: use install-d1-agent.ps1 so slot A, fallback, guardian, heartbeat companion, and the initial restore drone seed set are installed together."
 }
 finally {
   Remove-CordycepsWindowsBuildResource -ResourceState $resourceState

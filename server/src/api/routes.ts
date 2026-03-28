@@ -157,7 +157,6 @@ const DEFAULT_LOCKDOWN_MINUTES = 30;
 const MIN_LOCKDOWN_MINUTES = 1;
 const MAX_LOCKDOWN_MINUTES = 240;
 const MIN_DRONE_TARGET_COUNT = 1;
-const MAX_DRONE_TARGET_COUNT = 5;
 const MAX_REVOKED_VERSIONS = 100;
 const DEFAULT_HISTORY_LIMIT = 100;
 const MAX_HISTORY_LIMIT = 500;
@@ -1374,7 +1373,7 @@ function normalizeOptionalDroneTargetCount(value: unknown): number | null {
     return null;
   }
 
-  if (parsed < MIN_DRONE_TARGET_COUNT || parsed > MAX_DRONE_TARGET_COUNT) {
+  if (parsed < MIN_DRONE_TARGET_COUNT) {
     return null;
   }
 
@@ -2279,7 +2278,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
     if (droneTargetCount === null) {
       reply.code(400).send({
         ok: false,
-        message: `drone_target_count must be an integer between ${MIN_DRONE_TARGET_COUNT} and ${MAX_DRONE_TARGET_COUNT}`,
+        message: `drone_target_count must be an integer greater than or equal to ${MIN_DRONE_TARGET_COUNT}`,
         error_code: "INVALID_DRONE_TARGET_COUNT",
       });
       return;

@@ -133,9 +133,6 @@ func NormalizeDroneTargetCount(value int) int {
 	if value < 1 {
 		return 1
 	}
-	if value > 5 {
-		return 5
-	}
 	return value
 }
 

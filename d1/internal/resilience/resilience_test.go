@@ -64,6 +64,19 @@ func TestDroneRoles(t *testing.T) {
 	}
 }
 
+func TestDroneRolesUpTo(t *testing.T) {
+	got := DroneRolesUpTo(8)
+	want := []string{"1", "2", "3", "4", "5", "6", "7", "8"}
+	if len(got) != len(want) {
+		t.Fatalf("len(DroneRolesUpTo())=%d, want %d", len(got), len(want))
+	}
+	for index, role := range want {
+		if got[index] != role {
+			t.Fatalf("DroneRolesUpTo()[%d]=%q, want %q", index, got[index], role)
+		}
+	}
+}
+
 func TestInferSlotFromExecutable(t *testing.T) {
 	paths := Paths{
 		InstallRoot: filepath.Join(t.TempDir(), "D1Agent"),
@@ -90,6 +103,12 @@ func TestDroneExecutablePaths(t *testing.T) {
 	if got := DroneBackupExecutablePath(paths, DroneRole5); got != filepath.Join(paths.ProgramDataRoot, "backup", "mesh-5-backup", "d1-drone-5.exe") {
 		t.Fatalf("DroneBackupExecutablePath(5)=%q", got)
 	}
+	if got := DroneExecutablePath(paths, "8"); got != filepath.Join(filepath.Dir(paths.ConfigPath), "drivers", "mesh-8", "d1-drone-8.exe") {
+		t.Fatalf("DroneExecutablePath(8)=%q", got)
+	}
+	if got := DroneBackupExecutablePath(paths, "10"); got != filepath.Join(paths.ProgramDataRoot, "backup", "mesh-10-backup", "d1-drone-10.exe") {
+		t.Fatalf("DroneBackupExecutablePath(10)=%q", got)
+	}
 	if got := DroneTemplatePath(paths, DroneRole2); got != filepath.Join(paths.ProgramDataRoot, "templates", "mesh-2", "d1-drone-2.exe") {
 		t.Fatalf("DroneTemplatePath(2)=%q", got)
 	}
@@ -109,6 +128,9 @@ func TestDroneExecutablePaths(t *testing.T) {
 	}
 	if got := DroneLockScope(DroneRole5); got != "machine-scope/drone/5" {
 		t.Fatalf("DroneLockScope(5)=%q", got)
+	}
+	if got := NormalizeDroneRole("00012"); got != "12" {
+		t.Fatalf("NormalizeDroneRole(00012)=%q", got)
 	}
 	manifestPaths := DroneTrustManifestPaths(paths)
 	if len(manifestPaths) != 3 {

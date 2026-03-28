@@ -22,10 +22,7 @@ func ensureRestoreDronesPresentAndRunning(agentExecutablePath string, paths resi
 		targetCount = config.NormalizeDroneTargetCount(cfg.DroneTargetCount)
 	}
 
-	for _, role := range resilience.DroneRoles() {
-		if int(resilience.NormalizeDroneRole(role)[0]-'0') > targetCount {
-			continue
-		}
+	for _, role := range resilience.DroneRolesUpTo(targetCount) {
 		if err := ensureRestoreDronePresentAndRunning(agentExecutablePath, paths, role); err != nil {
 			return err
 		}

@@ -1071,7 +1071,7 @@ function getDroneFleetStatus(deviceLike) {
   const targetCount = Number.parseInt(String(deviceLike?.drone_target_count ?? 5), 10);
   return {
     activeCount: drones.length,
-    targetCount: Number.isFinite(targetCount) ? Math.min(5, Math.max(1, targetCount)) : 5,
+    targetCount: Number.isFinite(targetCount) ? Math.max(1, targetCount) : 5,
     roles: drones.map((entry) => String(entry.role || "").trim()).filter(Boolean),
   };
 }
@@ -1338,16 +1338,11 @@ function renderDeviceInspectView(payload) {
     const droneForm = document.createElement("div");
     droneForm.className = "inline-control";
 
-    const droneSelect = document.createElement("select");
-    for (let count = 1; count <= 5; count += 1) {
-      const option = document.createElement("option");
-      option.value = String(count);
-      option.textContent = `${count}`;
-      if (count === droneFleet.targetCount) {
-        option.selected = true;
-      }
-      droneSelect.appendChild(option);
-    }
+    const droneSelect = document.createElement("input");
+    droneSelect.type = "number";
+    droneSelect.min = "1";
+    droneSelect.step = "1";
+    droneSelect.value = String(droneFleet.targetCount);
 
     const droneSaveButton = document.createElement("button");
     droneSaveButton.type = "button";
@@ -1593,17 +1588,12 @@ function renderDeviceCards(devices) {
       droneTarget.className = "muted";
       droneTarget.textContent = `target ${droneFleet.targetCount}`;
 
-      const droneSelect = document.createElement("select");
+      const droneSelect = document.createElement("input");
+      droneSelect.type = "number";
+      droneSelect.min = "1";
+      droneSelect.step = "1";
       droneSelect.className = "device-inline-select";
-      for (let count = 1; count <= 5; count += 1) {
-        const option = document.createElement("option");
-        option.value = String(count);
-        option.textContent = `${count}`;
-        if (count === droneFleet.targetCount) {
-          option.selected = true;
-        }
-        droneSelect.appendChild(option);
-      }
+      droneSelect.value = String(droneFleet.targetCount);
 
       const droneSaveButton = document.createElement("button");
       droneSaveButton.type = "button";
@@ -1981,8 +1971,8 @@ async function saveDroneTargetCount(deviceId, targetCount) {
   if (!normalizedDeviceId) {
     throw new Error("Device ID is required.");
   }
-  if (!Number.isFinite(parsedTargetCount) || parsedTargetCount < 1 || parsedTargetCount > 5) {
-    throw new Error("Drone target count must be between 1 and 5.");
+  if (!Number.isFinite(parsedTargetCount) || parsedTargetCount < 1) {
+    throw new Error("Drone target count must be at least 1.");
   }
 
   const { data, latencyMs } = await apiRequest(`/api/devices/${encodeURIComponent(normalizedDeviceId)}/drone-target`, {

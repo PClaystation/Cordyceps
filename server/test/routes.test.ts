@@ -1225,6 +1225,40 @@ test("drone target endpoint updates per-device d-agent target count", async () =
   }
 });
 
+test("drone target endpoint accepts values above five", async () => {
+  const harness = await createHarness();
+  const { server, db, cleanup } = harness;
+
+  try {
+    db.enrollDevice({
+      deviceId: "d1",
+      tokenHash: sha256Hex("d1-token"),
+      displayName: "d1",
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+      capabilities: ["profile_d", "updater"],
+    });
+
+    const response = await server.inject({
+      method: "PUT",
+      url: "/api/devices/d1/drone-target",
+      headers: authHeaders("owner-token"),
+      payload: {
+        drone_target_count: 12,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.drone_target_count, 12);
+    assert.equal(db.getDroneTargetCount("d1"), 12);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("device delete endpoint removes offline device records", async () => {
   const harness = await createHarness();
   const { server, db, cleanup } = harness;

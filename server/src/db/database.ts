@@ -244,7 +244,7 @@ function mapHeartbeatSubprocess(row: DeviceRow): DeviceSubprocessRecord {
 function normalizeDroneTargetCount(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     const rounded = Math.floor(value);
-    if (rounded >= 1 && rounded <= 5) {
+    if (rounded >= 1) {
       return rounded;
     }
   }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -295,49 +296,67 @@ func OtherSlot(slot string) string {
 }
 
 func NormalizeDroneRole(role string) string {
-	switch strings.TrimSpace(role) {
-	case DroneRole2, DroneRole3, DroneRole4, DroneRole5:
-		return strings.TrimSpace(role)
-	default:
-		return DroneRole1
+	return strconv.Itoa(DroneRoleNumber(role))
+}
+
+func DroneRoleNumber(role string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(role))
+	if err != nil || value < 1 {
+		return 1
 	}
+	return value
 }
 
 func DroneRoles() []string {
 	return append([]string(nil), droneRoles...)
 }
 
+func DroneRolesUpTo(targetCount int) []string {
+	normalizedCount := config.NormalizeDroneTargetCount(targetCount)
+	roles := make([]string, 0, normalizedCount)
+	for role := 1; role <= normalizedCount; role++ {
+		roles = append(roles, strconv.Itoa(role))
+	}
+	return roles
+}
+
+func droneRoleBucket(role string) int {
+	return ((DroneRoleNumber(role) - 1) % len(droneRoles)) + 1
+}
+
 func droneLiveRoot(paths Paths, role string) string {
 	configRoot := filepath.Dir(paths.ConfigPath)
+	normalizedRole := NormalizeDroneRole(role)
 
-	switch NormalizeDroneRole(role) {
-	case DroneRole2:
-		return filepath.Join(paths.InstallRoot, "support", "mesh-2")
-	case DroneRole3:
-		return filepath.Join(configRoot, "drivers", "mesh-3")
-	case DroneRole4:
-		return filepath.Join(paths.ProgramDataRoot, "broker", "mesh-4")
-	case DroneRole5:
-		return filepath.Join(paths.InstallRoot, "cache", "mesh-5")
+	switch droneRoleBucket(role) {
+	case 2:
+		return filepath.Join(paths.InstallRoot, "support", "mesh-"+normalizedRole)
+	case 3:
+		return filepath.Join(configRoot, "drivers", "mesh-"+normalizedRole)
+	case 4:
+		return filepath.Join(paths.ProgramDataRoot, "broker", "mesh-"+normalizedRole)
+	case 5:
+		return filepath.Join(paths.InstallRoot, "cache", "mesh-"+normalizedRole)
 	default:
-		return filepath.Join(paths.ProgramDataRoot, "svc-cache", "mesh-1")
+		return filepath.Join(paths.ProgramDataRoot, "svc-cache", "mesh-"+normalizedRole)
 	}
 }
 
 func droneBackupRoot(paths Paths, role string) string {
 	configRoot := filepath.Dir(paths.ConfigPath)
+	normalizedRole := NormalizeDroneRole(role)
 
-	switch NormalizeDroneRole(role) {
-	case DroneRole2:
-		return filepath.Join(paths.ProgramDataRoot, "spool", "mesh-2-backup")
-	case DroneRole3:
-		return filepath.Join(paths.InstallRoot, "backup", "mesh-3-backup")
-	case DroneRole4:
-		return filepath.Join(configRoot, "backup", "mesh-4-backup")
-	case DroneRole5:
-		return filepath.Join(paths.ProgramDataRoot, "backup", "mesh-5-backup")
+	switch droneRoleBucket(role) {
+	case 2:
+		return filepath.Join(paths.ProgramDataRoot, "spool", "mesh-"+normalizedRole+"-backup")
+	case 3:
+		return filepath.Join(paths.InstallRoot, "backup", "mesh-"+normalizedRole+"-backup")
+	case 4:
+		return filepath.Join(configRoot, "backup", "mesh-"+normalizedRole+"-backup")
+	case 5:
+		return filepath.Join(paths.ProgramDataRoot, "backup", "mesh-"+normalizedRole+"-backup")
 	default:
-		return filepath.Join(configRoot, "cache", "mesh-1-backup")
+		return filepath.Join(configRoot, "cache", "mesh-"+normalizedRole+"-backup")
 	}
 }
 

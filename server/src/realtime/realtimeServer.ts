@@ -315,7 +315,16 @@ function normalizeDroneRole(value: unknown): string | null {
   }
 
   const trimmed = value.trim();
-  return /^[1-5]$/.test(trimmed) ? trimmed : null;
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+
+  const normalized = Number.parseInt(trimmed, 10);
+  if (!Number.isSafeInteger(normalized) || normalized < 1) {
+    return null;
+  }
+
+  return String(normalized);
 }
 
 function asHelloMessage(value: Record<string, unknown>): AgentHelloMessage | null {

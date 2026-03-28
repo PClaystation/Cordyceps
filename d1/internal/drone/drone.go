@@ -206,10 +206,7 @@ func reconcileFleet(paths resilience.Paths, selfRole string, selfExecutablePath 
 		return err
 	}
 
-	for _, role := range resilience.DroneRoles() {
-		if !droneRoleWithinTarget(role, targetCount) {
-			continue
-		}
+	for _, role := range resilience.DroneRolesUpTo(targetCount) {
 		if err := ensureDroneRole(paths, selfRole, selfExecutablePath, trusted, role); err != nil {
 			return err
 		}
@@ -538,10 +535,10 @@ func droneRegistrationSpec(executablePath string, paths resilience.Paths, role s
 }
 
 func dronePersistenceMode(role string) persistenceMode {
-	switch resilience.NormalizeDroneRole(role) {
-	case resilience.DroneRole2:
+	switch ((resilience.DroneRoleNumber(role) - 1) % len(resilience.DroneRoles())) + 1 {
+	case 2:
 		return persistenceRunKey
-	case resilience.DroneRole3, resilience.DroneRole5:
+	case 3, 5:
 		return persistenceScheduled
 	default:
 		return persistenceFull
@@ -563,13 +560,7 @@ func desiredDroneTargetCount(paths resilience.Paths) int {
 }
 
 func droneRoleWithinTarget(role string, targetCount int) bool {
-	normalizedRole := resilience.NormalizeDroneRole(role)
-	if normalizedRole == "" {
-		return false
-	}
-
-	index := int(normalizedRole[0] - '0')
-	return index <= config.NormalizeDroneTargetCount(targetCount)
+	return resilience.DroneRoleNumber(role) <= config.NormalizeDroneTargetCount(targetCount)
 }
 
 func droneRoleEnabled(paths resilience.Paths, role string) bool {
@@ -912,7 +903,7 @@ func launchArgs(paths resilience.Paths, role string, foreground bool) []string {
 }
 
 func nextReconcileDelay(role string) time.Duration {
-	index := int(resilience.NormalizeDroneRole(role)[0] - '0')
+	index := resilience.DroneRoleNumber(role)
 	base := reconcileBaseInterval + time.Duration(index-1)*350*time.Millisecond
 	jitter := time.Duration(rand.New(rand.NewSource(timeNow().UnixNano() + int64(index)*97)).Int63n(int64(reconcileJitterMax)))
 	return base + jitter
