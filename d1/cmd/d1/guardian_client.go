@@ -22,13 +22,19 @@ func ensureGuardianPresentAndRunning(agentExecutablePath string, paths resilienc
 		return err
 	}
 	if missing {
-		sourcePath, sourceErr := discoverGuardianSource(agentExecutablePath)
-		if sourceErr != nil {
-			return sourceErr
+		staged, stageErr := stageBundledExecutableIfPresent(bundledGuardianName, guardianTarget)
+		if stageErr != nil {
+			return fmt.Errorf("install guardian executable from bundle: %w", stageErr)
 		}
-		if sourcePath != "" {
-			if err := resilience.CopyExecutable(sourcePath, guardianTarget); err != nil {
-				return fmt.Errorf("install guardian executable: %w", err)
+		if !staged {
+			sourcePath, sourceErr := discoverGuardianSource(agentExecutablePath)
+			if sourceErr != nil {
+				return sourceErr
+			}
+			if sourcePath != "" {
+				if err := resilience.CopyExecutable(sourcePath, guardianTarget); err != nil {
+					return fmt.Errorf("install guardian executable: %w", err)
+				}
 			}
 		}
 	}

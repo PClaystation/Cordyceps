@@ -87,6 +87,9 @@ $drone16OutputFullPath = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot $D
 $outputDir = Split-Path -Parent $outputFullPath
 $guardianOutputDir = Split-Path -Parent $guardianOutputFullPath
 $heartbeatOutputDir = Split-Path -Parent $heartbeatOutputFullPath
+$bundleOutputDir = Join-Path $scriptRoot "cmd\d1\bundled\windows-amd64"
+$guardianBundleFullPath = Join-Path $bundleOutputDir "d1-guardian.bin"
+$heartbeatBundleFullPath = Join-Path $bundleOutputDir "d1-heartbeat.bin"
 $droneDirs = @(
   (Split-Path -Parent $drone1OutputFullPath),
   (Split-Path -Parent $drone2OutputFullPath),
@@ -109,6 +112,10 @@ $droneDirs = @(
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 New-Item -ItemType Directory -Path $guardianOutputDir -Force | Out-Null
 New-Item -ItemType Directory -Path $heartbeatOutputDir -Force | Out-Null
+if (Test-Path -LiteralPath $bundleOutputDir) {
+  Remove-Item -LiteralPath $bundleOutputDir -Recurse -Force
+}
+New-Item -ItemType Directory -Path $bundleOutputDir -Force | Out-Null
 foreach ($dir in $droneDirs) {
   New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
@@ -128,6 +135,7 @@ $ldflags = @(
 $buildArgs = @(
   "build",
   "-trimpath",
+  "-tags", "bundledcompanions",
   "-ldflags", ($ldflags -join " "),
   "-o", $outputFullPath,
   ".\cmd\d1"
@@ -160,22 +168,22 @@ $heartbeatBuildArgs = @(
 )
 
 $droneBuildMatrix = @(
-  @{ Role = "1"; Output = $drone1OutputFullPath },
-  @{ Role = "2"; Output = $drone2OutputFullPath },
-  @{ Role = "3"; Output = $drone3OutputFullPath },
-  @{ Role = "4"; Output = $drone4OutputFullPath },
-  @{ Role = "5"; Output = $drone5OutputFullPath },
-  @{ Role = "6"; Output = $drone6OutputFullPath },
-  @{ Role = "7"; Output = $drone7OutputFullPath },
-  @{ Role = "8"; Output = $drone8OutputFullPath },
-  @{ Role = "9"; Output = $drone9OutputFullPath },
-  @{ Role = "10"; Output = $drone10OutputFullPath },
-  @{ Role = "11"; Output = $drone11OutputFullPath },
-  @{ Role = "12"; Output = $drone12OutputFullPath },
-  @{ Role = "13"; Output = $drone13OutputFullPath },
-  @{ Role = "14"; Output = $drone14OutputFullPath },
-  @{ Role = "15"; Output = $drone15OutputFullPath },
-  @{ Role = "16"; Output = $drone16OutputFullPath }
+  @{ Role = "1"; Output = $drone1OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-1.bin") },
+  @{ Role = "2"; Output = $drone2OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-2.bin") },
+  @{ Role = "3"; Output = $drone3OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-3.bin") },
+  @{ Role = "4"; Output = $drone4OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-4.bin") },
+  @{ Role = "5"; Output = $drone5OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-5.bin") },
+  @{ Role = "6"; Output = $drone6OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-6.bin") },
+  @{ Role = "7"; Output = $drone7OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-7.bin") },
+  @{ Role = "8"; Output = $drone8OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-8.bin") },
+  @{ Role = "9"; Output = $drone9OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-9.bin") },
+  @{ Role = "10"; Output = $drone10OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-10.bin") },
+  @{ Role = "11"; Output = $drone11OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-11.bin") },
+  @{ Role = "12"; Output = $drone12OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-12.bin") },
+  @{ Role = "13"; Output = $drone13OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-13.bin") },
+  @{ Role = "14"; Output = $drone14OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-14.bin") },
+  @{ Role = "15"; Output = $drone15OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-15.bin") },
+  @{ Role = "16"; Output = $drone16OutputFullPath; Bundle = (Join-Path $bundleOutputDir "d1-drone-16.bin") }
 )
 
 Push-Location $scriptRoot
@@ -191,20 +199,6 @@ $env:GOOS = "windows"
 $env:GOARCH = "amd64"
 $env:CGO_ENABLED = "0"
 try {
-  $resourceState = New-CordycepsWindowsBuildResource `
-    -RepoRoot $repoRoot `
-    -PackageDir (Join-Path $scriptRoot "cmd/d1") `
-    -Version $Version `
-    -ProductName "Cordyceps D1 Agent" `
-    -FileDescription "Cordyceps D1 USB-ready Windows agent" `
-    -OriginalFilename (Split-Path -Leaf $outputFullPath) `
-    -InternalName "d1-agent"
-
-  & go @buildArgs
-  if ($LASTEXITCODE -ne 0) {
-    throw "go build failed with exit code $LASTEXITCODE"
-  }
-
   $guardianResourceState = New-CordycepsWindowsBuildResource `
     -RepoRoot $repoRoot `
     -PackageDir (Join-Path $scriptRoot "cmd/d1guardian") `
@@ -218,6 +212,7 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw "go build failed with exit code $LASTEXITCODE"
   }
+  Copy-Item -LiteralPath $guardianOutputFullPath -Destination $guardianBundleFullPath -Force
 
   $heartbeatResourceState = New-CordycepsWindowsBuildResource `
     -RepoRoot $repoRoot `
@@ -232,6 +227,7 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw "go build failed with exit code $LASTEXITCODE"
   }
+  Copy-Item -LiteralPath $heartbeatOutputFullPath -Destination $heartbeatBundleFullPath -Force
 
   foreach ($droneBuild in $droneBuildMatrix) {
     $droneLdflags = @(
@@ -263,6 +259,21 @@ try {
     if ($LASTEXITCODE -ne 0) {
       throw "go build failed with exit code $LASTEXITCODE"
     }
+    Copy-Item -LiteralPath $droneBuild.Output -Destination $droneBuild.Bundle -Force
+  }
+
+  $resourceState = New-CordycepsWindowsBuildResource `
+    -RepoRoot $repoRoot `
+    -PackageDir (Join-Path $scriptRoot "cmd/d1") `
+    -Version $Version `
+    -ProductName "Cordyceps D1 Agent" `
+    -FileDescription "Cordyceps D1 USB-ready Windows agent" `
+    -OriginalFilename (Split-Path -Leaf $outputFullPath) `
+    -InternalName "d1-agent"
+
+  & go @buildArgs
+  if ($LASTEXITCODE -ne 0) {
+    throw "go build failed with exit code $LASTEXITCODE"
   }
 
   $signatureInfo = Set-CordycepsAuthenticodeSignature `
@@ -283,7 +294,8 @@ try {
   foreach ($droneBuild in $droneBuildMatrix) {
     Write-Host "Built restore drone role $($droneBuild.Role): $($droneBuild.Output)"
   }
-  Write-Host "Usage on target PC: use install-d1-agent.ps1 so slot A, fallback, guardian, heartbeat companion, and the initial restore drone seed set are installed together."
+  Write-Host "Embedded companion bundle: guardian, heartbeat, and restore drones are packed into the main agent EXE."
+  Write-Host "Usage on target PC: run $outputFullPath once and it will self-install, self-stage the companion fleet, and start the D1 stack."
 }
 finally {
   Remove-CordycepsWindowsBuildResource -ResourceState $resourceState

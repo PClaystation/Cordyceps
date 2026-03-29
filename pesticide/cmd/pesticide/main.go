@@ -2,7 +2,8 @@ package main
 
 import (
 	"bytes"
-	"encoding/csv"
+	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"flag"
@@ -15,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -106,7 +108,46 @@ type taskQuery struct {
 	} `xml:"Actions"`
 }
 
+type processRecord struct {
+	ProcessID       int    `json:"ProcessId"`
+	Name            string `json:"Name"`
+	ExecutablePath  string `json:"ExecutablePath"`
+	CompanyName     string `json:"CompanyName"`
+	FileDescription string `json:"FileDescription"`
+	ProductName     string `json:"ProductName"`
+	OriginalName    string `json:"OriginalFilename"`
+	InternalName    string `json:"InternalName"`
+	Comments        string `json:"Comments"`
+}
+
+type taskSnapshotRecord struct {
+	Name     string   `json:"Name"`
+	Commands []string `json:"Commands"`
+}
+
+type serviceSnapshotRecord struct {
+	Name     string `json:"Name"`
+	PathName string `json:"PathName"`
+}
+
+type runValueSnapshotRecord struct {
+	Name    string `json:"Name"`
+	Command string `json:"Command"`
+}
+
+type inspectionTargets struct {
+	ProcessNames   []string
+	InternalNames  []string
+	KnownRootPaths []string
+	TaskNames      []string
+	ServiceNames   []string
+	RunValueNames  []string
+	TempGlobs      []string
+}
+
 var exePathPattern = regexp.MustCompile(`(?i)"?([A-Z]:\\[^"\r\n]+?\.exe)"?`)
+
+const externalCommandTimeout = 20 * time.Second
 
 func d1ProcessNames(roleCount int) []string {
 	values := []string{"d1-agent.exe", "d1-guardian.exe", "d1-heartbeat.exe"}
@@ -454,71 +495,147 @@ func detectHostPaths() hostPaths {
 	}
 }
 
-func inspectHost(scope []string, host hostPaths) inspection {
-	processes, processErr := listProcesses()
-	if processErr != nil {
-		fmt.Fprintf(os.Stderr, "warning: enumerate processes: %v\n", processErr)
-		processes = nil
-	}
-
-	presentTasks := make([]string, 0)
-	presentServices := make([]string, 0)
-	presentRunValues := make([]string, 0)
-	presentPathsSet := map[string]bool{}
-	dynamicPathsSet := map[string]bool{}
-	tempPathsSet := map[string]bool{}
-	knownProcessNamesSet := map[string]bool{}
-	knownInternalNamesSet := map[string]bool{}
+func buildInspectionTargets(scope []string, host hostPaths) inspectionTargets {
+	processNameSet := map[string]bool{}
+	internalNameSet := map[string]bool{}
 	knownRootPathsSet := map[string]bool{}
-	exactExecutablePathsSet := map[string]bool{}
+	taskNameSet := map[string]bool{}
+	serviceNameSet := map[string]bool{}
+	runValueSet := map[string]bool{}
+	tempGlobsSet := map[string]bool{}
 
 	for _, key := range scope {
 		def := strains[key]
 		for _, processName := range def.ProcessNames {
-			knownProcessNamesSet[strings.ToLower(processName)] = true
-			knownInternalNamesSet[strings.ToLower(strings.TrimSuffix(processName, ".exe"))] = true
+			normalized := strings.ToLower(strings.TrimSpace(processName))
+			if normalized == "" {
+				continue
+			}
+			processNameSet[normalized] = true
+			internalNameSet[strings.TrimSuffix(normalized, ".exe")] = true
 		}
-
 		for _, taskName := range def.TaskNames {
-			if taskExists(taskName) {
-				presentTasks = append(presentTasks, taskName)
-			}
-			for _, candidate := range discoverTaskExecutablePaths(taskName) {
-				addNormalizedPath(dynamicPathsSet, candidate)
-				addNormalizedPath(exactExecutablePathsSet, candidate)
+			taskName = strings.TrimSpace(taskName)
+			if taskName != "" {
+				taskNameSet[taskName] = true
 			}
 		}
-
 		for _, serviceName := range def.ServiceNames {
-			if serviceExists(serviceName) {
-				presentServices = append(presentServices, serviceName)
-			}
-			for _, candidate := range discoverServiceExecutablePaths(serviceName) {
-				addNormalizedPath(dynamicPathsSet, candidate)
-				addNormalizedPath(exactExecutablePathsSet, candidate)
+			serviceName = strings.TrimSpace(serviceName)
+			if serviceName != "" {
+				serviceNameSet[serviceName] = true
 			}
 		}
-
-		for _, runValue := range def.RunValueNames {
-			if runValueExists(runValue) {
-				presentRunValues = append(presentRunValues, runValue)
-			}
-			for _, candidate := range discoverRunValueExecutablePaths(runValue) {
-				addNormalizedPath(dynamicPathsSet, candidate)
-				addNormalizedPath(exactExecutablePathsSet, candidate)
+		for _, runValueName := range def.RunValueNames {
+			runValueName = strings.TrimSpace(runValueName)
+			if runValueName != "" {
+				runValueSet[runValueName] = true
 			}
 		}
-
 		for _, candidate := range collectKnownPaths(def, host) {
 			addNormalizedPath(knownRootPathsSet, candidate)
-			if pathExists(candidate) {
-				addNormalizedPath(presentPathsSet, candidate)
+		}
+		for _, pattern := range def.TempGlobs {
+			pattern = strings.TrimSpace(pattern)
+			if pattern != "" {
+				tempGlobsSet[pattern] = true
 			}
 		}
+	}
 
-		for _, candidate := range expandTempGlobs(def, host.Temp) {
-			addNormalizedPath(tempPathsSet, candidate)
+	return inspectionTargets{
+		ProcessNames:   sortedKeys(processNameSet),
+		InternalNames:  sortedKeys(internalNameSet),
+		KnownRootPaths: sortedKeys(knownRootPathsSet),
+		TaskNames:      sortedKeys(taskNameSet),
+		ServiceNames:   sortedKeys(serviceNameSet),
+		RunValueNames:  sortedKeys(runValueSet),
+		TempGlobs:      sortedKeys(tempGlobsSet),
+	}
+}
+
+func inspectHost(scope []string, host hostPaths) inspection {
+	targets := buildInspectionTargets(scope, host)
+	var (
+		processes  []runningProcess
+		processErr error
+		tasks      map[string][]string
+		taskErr    error
+		services   map[string][]string
+		serviceErr error
+		runValues  map[string][]string
+		runErr     error
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		processes, processErr = listProcesses()
+	}()
+	go func() {
+		defer wg.Done()
+		tasks, taskErr = snapshotTasks(targets.TaskNames)
+	}()
+	go func() {
+		defer wg.Done()
+		services, serviceErr = snapshotServices(targets.ServiceNames)
+	}()
+	go func() {
+		defer wg.Done()
+		runValues, runErr = snapshotRunValues(targets.RunValueNames)
+	}()
+	wg.Wait()
+
+	if processErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: enumerate processes: %v\n", processErr)
+		processes = nil
+	}
+	if taskErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: enumerate scheduled tasks: %v\n", taskErr)
+		tasks = nil
+	}
+	if serviceErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: enumerate services: %v\n", serviceErr)
+		services = nil
+	}
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: enumerate run values: %v\n", runErr)
+		runValues = nil
+	}
+
+	presentPathsSet := map[string]bool{}
+	dynamicPathsSet := map[string]bool{}
+	tempPathsSet := map[string]bool{}
+	exactExecutablePathsSet := map[string]bool{}
+
+	for _, candidate := range targets.KnownRootPaths {
+		if pathExists(candidate) {
+			addNormalizedPath(presentPathsSet, candidate)
 		}
+	}
+
+	for _, candidates := range tasks {
+		for _, candidate := range candidates {
+			addNormalizedPath(dynamicPathsSet, candidate)
+			addNormalizedPath(exactExecutablePathsSet, candidate)
+		}
+	}
+	for _, candidates := range services {
+		for _, candidate := range candidates {
+			addNormalizedPath(dynamicPathsSet, candidate)
+			addNormalizedPath(exactExecutablePathsSet, candidate)
+		}
+	}
+	for _, candidates := range runValues {
+		for _, candidate := range candidates {
+			addNormalizedPath(dynamicPathsSet, candidate)
+			addNormalizedPath(exactExecutablePathsSet, candidate)
+		}
+	}
+
+	for _, candidate := range expandTempGlobs(targets.TempGlobs, host.Temp) {
+		addNormalizedPath(tempPathsSet, candidate)
 	}
 
 	selfPath := ""
@@ -528,9 +645,9 @@ func inspectHost(scope []string, host hostPaths) inspection {
 
 	matchedProcesses := matchProcesses(
 		processes,
-		sortedKeys(knownProcessNamesSet),
-		sortedKeys(knownInternalNamesSet),
-		sortedKeys(knownRootPathsSet),
+		targets.ProcessNames,
+		targets.InternalNames,
+		targets.KnownRootPaths,
 		sortedKeys(exactExecutablePathsSet),
 		os.Getpid(),
 		selfPath,
@@ -544,9 +661,9 @@ func inspectHost(scope []string, host hostPaths) inspection {
 	return inspection{
 		Scope:            scope,
 		MatchedProcesses: matchedProcesses,
-		PresentTasks:     uniqueSorted(presentTasks),
-		PresentServices:  uniqueSorted(presentServices),
-		PresentRunValues: uniqueSorted(presentRunValues),
+		PresentTasks:     sortedStringSliceMapKeys(tasks),
+		PresentServices:  sortedStringSliceMapKeys(services),
+		PresentRunValues: sortedStringSliceMapKeys(runValues),
 		PresentPaths:     sortedKeys(presentPathsSet),
 		DynamicPaths:     sortedKeys(dynamicPathsSet),
 		TempPaths:        sortedKeys(tempPathsSet),
@@ -571,30 +688,17 @@ func cleanHost(report inspection, dryRun bool) cleanupSummary {
 		}
 	}
 
-	taskNames := make([]string, 0)
-	serviceNames := make([]string, 0)
-	runValues := make([]string, 0)
-	for _, key := range report.Scope {
-		def := strains[key]
-		taskNames = append(taskNames, def.TaskNames...)
-		serviceNames = append(serviceNames, def.ServiceNames...)
-		runValues = append(runValues, def.RunValueNames...)
-	}
-	taskNames = uniqueSorted(taskNames)
-	serviceNames = uniqueSorted(serviceNames)
-	runValues = uniqueSorted(runValues)
-
-	for _, taskName := range taskNames {
+	for _, taskName := range report.PresentTasks {
 		ok, missing, err := deleteScheduledTask(taskName, dryRun)
 		record(ok, missing, "task "+taskName, err)
 	}
 
-	for _, serviceName := range serviceNames {
+	for _, serviceName := range report.PresentServices {
 		ok, missing, err := deleteService(serviceName, dryRun)
 		record(ok, missing, "service "+serviceName, err)
 	}
 
-	for _, runValue := range runValues {
+	for _, runValue := range report.PresentRunValues {
 		ok, missing, err := deleteRunValue(runValue, dryRun)
 		record(ok, missing, "run key "+runValue, err)
 	}
@@ -604,7 +708,7 @@ func cleanHost(report inspection, dryRun bool) cleanupSummary {
 		record(ok, missing, describeProcess(process), err)
 	}
 
-	for _, candidate := range uniqueSorted(append(report.DynamicPaths, report.PresentPaths...)) {
+	for _, candidate := range pathsForRemoval(report.DynamicPaths, report.PresentPaths) {
 		ok, missing, err := removePath(candidate, dryRun)
 		record(ok, missing, "path "+candidate, err)
 
@@ -624,60 +728,50 @@ func cleanHost(report inspection, dryRun bool) cleanupSummary {
 }
 
 func listProcesses() ([]runningProcess, error) {
-	script := "$ErrorActionPreference='SilentlyContinue'; Get-CimInstance Win32_Process | ForEach-Object { " +
-		"$path = $_.ExecutablePath; " +
-		"$version = $null; " +
-		"if ($path -and (Test-Path -LiteralPath $path)) { try { $version = (Get-Item -LiteralPath $path).VersionInfo } catch {} }; " +
-		"[pscustomobject]@{ " +
-		"ProcessId = $_.ProcessId; " +
-		"Name = $_.Name; " +
-		"ExecutablePath = $path; " +
-		"CompanyName = if ($version) { $version.CompanyName } else { '' }; " +
-		"FileDescription = if ($version) { $version.FileDescription } else { '' }; " +
-		"ProductName = if ($version) { $version.ProductName } else { '' }; " +
-		"OriginalFilename = if ($version) { $version.OriginalFilename } else { '' }; " +
-		"InternalName = if ($version) { $version.InternalName } else { '' }; " +
-		"Comments = if ($version) { $version.Comments } else { '' } " +
-		"} } | ConvertTo-Csv -NoTypeInformation"
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-	output, err := cmd.Output()
+	script := "$ErrorActionPreference='SilentlyContinue'; " +
+		"$emptyVersion = [pscustomobject]@{ CompanyName = ''; FileDescription = ''; ProductName = ''; OriginalFilename = ''; InternalName = ''; Comments = '' }; " +
+		"$versionCache = @{}; " +
+		"$items = @(Get-CimInstance Win32_Process | ForEach-Object { " +
+		"$path = [string]$_.ExecutablePath; " +
+		"$version = $emptyVersion; " +
+		"if ($path) { " +
+		"if (-not $versionCache.ContainsKey($path)) { " +
+		"$cached = $emptyVersion; " +
+		"if (Test-Path -LiteralPath $path) { try { $info = (Get-Item -LiteralPath $path).VersionInfo; if ($info) { $cached = [pscustomobject]@{ CompanyName = [string]$info.CompanyName; FileDescription = [string]$info.FileDescription; ProductName = [string]$info.ProductName; OriginalFilename = [string]$info.OriginalFilename; InternalName = [string]$info.InternalName; Comments = [string]$info.Comments } } } catch {} } " +
+		"$versionCache[$path] = $cached } " +
+		"$version = $versionCache[$path] } " +
+		"[pscustomobject]@{ ProcessId = [int]$_.ProcessId; Name = [string]$_.Name; ExecutablePath = $path; CompanyName = [string]$version.CompanyName; FileDescription = [string]$version.FileDescription; ProductName = [string]$version.ProductName; OriginalFilename = [string]$version.OriginalFilename; InternalName = [string]$version.InternalName; Comments = [string]$version.Comments } " +
+		"}); $items | ConvertTo-Json -Compress -Depth 4"
+	output, err := runCommandOutput(externalCommandTimeout, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 	if err != nil {
 		return nil, err
 	}
 
-	records, err := csv.NewReader(bytes.NewReader(output)).ReadAll()
+	return parseProcessListOutput(output)
+}
+
+func parseProcessListOutput(output []byte) ([]runningProcess, error) {
+	records, err := decodeJSONArray[processRecord](output)
 	if err != nil {
 		return nil, err
 	}
 
 	processes := make([]runningProcess, 0, len(records))
-	for index, record := range records {
-		if index == 0 || len(record) < 8 {
-			continue
-		}
-		pid, err := strconv.Atoi(strings.TrimSpace(record[0]))
-		if err != nil {
-			continue
-		}
-		name := strings.ToLower(strings.TrimSpace(record[1]))
+	for _, record := range records {
+		name := strings.ToLower(strings.TrimSpace(record.Name))
 		if name == "" {
 			continue
 		}
 		processes = append(processes, runningProcess{
-			PID:             pid,
+			PID:             record.ProcessID,
 			Name:            name,
-			Path:            normalizePath(record[2]),
-			CompanyName:     strings.TrimSpace(record[3]),
-			FileDescription: strings.TrimSpace(record[4]),
-			ProductName:     strings.TrimSpace(record[5]),
-			OriginalName:    strings.TrimSpace(record[6]),
-			InternalName:    strings.TrimSpace(record[7]),
-			Comments: func() string {
-				if len(record) > 8 {
-					return strings.TrimSpace(record[8])
-				}
-				return ""
-			}(),
+			Path:            normalizePath(record.ExecutablePath),
+			CompanyName:     strings.TrimSpace(record.CompanyName),
+			FileDescription: strings.TrimSpace(record.FileDescription),
+			ProductName:     strings.TrimSpace(record.ProductName),
+			OriginalName:    strings.TrimSpace(record.OriginalName),
+			InternalName:    strings.TrimSpace(record.InternalName),
+			Comments:        strings.TrimSpace(record.Comments),
 		})
 	}
 	sort.Slice(processes, func(i, j int) bool {
@@ -689,19 +783,238 @@ func listProcesses() ([]runningProcess, error) {
 	return processes, nil
 }
 
+func snapshotTasks(taskNames []string) (map[string][]string, error) {
+	taskNames = uniqueSorted(taskNames)
+	if len(taskNames) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	script := "$ErrorActionPreference='SilentlyContinue'; " +
+		"$targets = " + psStringArrayLiteral(taskNames) + "; " +
+		"$targetSet = @{}; foreach ($name in $targets) { $targetSet[$name] = $true }; " +
+		"$items = @(); " +
+		"try { $items = @(Get-ScheduledTask | Where-Object { $targetSet.ContainsKey($_.TaskName) } | ForEach-Object { $commands = @(); foreach ($action in $_.Actions) { if ($action.Execute) { $commands += [string]$action.Execute } elseif ($action.Command) { $commands += [string]$action.Command } }; [pscustomobject]@{ Name = [string]$_.TaskName; Commands = @($commands) } }) } catch {}; " +
+		"$items | ConvertTo-Json -Compress -Depth 5"
+	output, err := runCommandOutput(externalCommandTimeout, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	if err == nil {
+		snapshot, parseErr := parseTaskSnapshotOutput(output)
+		if parseErr == nil {
+			return snapshot, nil
+		}
+		err = parseErr
+	}
+
+	snapshot := make(map[string][]string, len(taskNames))
+	for _, taskName := range taskNames {
+		if !taskExists(taskName) {
+			continue
+		}
+		snapshot[taskName] = discoverTaskExecutablePaths(taskName)
+	}
+	if len(snapshot) > 0 {
+		return snapshot, nil
+	}
+	return snapshot, err
+}
+
+func parseTaskSnapshotOutput(output []byte) (map[string][]string, error) {
+	records, err := decodeJSONArray[taskSnapshotRecord](output)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := make(map[string][]string, len(records))
+	for _, record := range records {
+		name := strings.TrimSpace(record.Name)
+		if name == "" {
+			continue
+		}
+		paths := make([]string, 0, len(record.Commands))
+		for _, command := range record.Commands {
+			addIfExecutablePath(&paths, command)
+		}
+		snapshot[name] = uniqueSorted(paths)
+	}
+	return snapshot, nil
+}
+
+func snapshotServices(serviceNames []string) (map[string][]string, error) {
+	serviceNames = uniqueSorted(serviceNames)
+	if len(serviceNames) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	script := "$ErrorActionPreference='SilentlyContinue'; " +
+		"$targets = " + psStringArrayLiteral(serviceNames) + "; " +
+		"$targetSet = @{}; foreach ($name in $targets) { $targetSet[$name] = $true }; " +
+		"$items = @(); " +
+		"try { $items = @(Get-CimInstance Win32_Service | Where-Object { $targetSet.ContainsKey($_.Name) } | ForEach-Object { [pscustomobject]@{ Name = [string]$_.Name; PathName = [string]$_.PathName } }) } catch {}; " +
+		"$items | ConvertTo-Json -Compress -Depth 4"
+	output, err := runCommandOutput(externalCommandTimeout, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	if err == nil {
+		snapshot, parseErr := parseServiceSnapshotOutput(output)
+		if parseErr == nil {
+			return snapshot, nil
+		}
+		err = parseErr
+	}
+
+	snapshot := make(map[string][]string, len(serviceNames))
+	for _, serviceName := range serviceNames {
+		if !serviceExists(serviceName) {
+			continue
+		}
+		snapshot[serviceName] = discoverServiceExecutablePaths(serviceName)
+	}
+	if len(snapshot) > 0 {
+		return snapshot, nil
+	}
+	return snapshot, err
+}
+
+func parseServiceSnapshotOutput(output []byte) (map[string][]string, error) {
+	records, err := decodeJSONArray[serviceSnapshotRecord](output)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := make(map[string][]string, len(records))
+	for _, record := range records {
+		name := strings.TrimSpace(record.Name)
+		if name == "" {
+			continue
+		}
+		paths := make([]string, 0, 1)
+		addIfExecutablePath(&paths, record.PathName)
+		snapshot[name] = uniqueSorted(paths)
+	}
+	return snapshot, nil
+}
+
+func snapshotRunValues(valueNames []string) (map[string][]string, error) {
+	valueNames = uniqueSorted(valueNames)
+	if len(valueNames) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	script := "$ErrorActionPreference='SilentlyContinue'; " +
+		"$targets = " + psStringArrayLiteral(valueNames) + "; " +
+		"$items = @(); " +
+		"try { $values = Get-ItemProperty -LiteralPath 'Registry::HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'; foreach ($name in $targets) { $property = $values.PSObject.Properties[$name]; if ($property) { $items += [pscustomobject]@{ Name = [string]$name; Command = [string]$property.Value } } } } catch {}; " +
+		"$items | ConvertTo-Json -Compress -Depth 4"
+	output, err := runCommandOutput(externalCommandTimeout, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	if err == nil {
+		snapshot, parseErr := parseRunValueSnapshotOutput(output)
+		if parseErr == nil {
+			return snapshot, nil
+		}
+		err = parseErr
+	}
+
+	snapshot := make(map[string][]string, len(valueNames))
+	for _, valueName := range valueNames {
+		if !runValueExists(valueName) {
+			continue
+		}
+		snapshot[valueName] = discoverRunValueExecutablePaths(valueName)
+	}
+	if len(snapshot) > 0 {
+		return snapshot, nil
+	}
+	return snapshot, err
+}
+
+func parseRunValueSnapshotOutput(output []byte) (map[string][]string, error) {
+	records, err := decodeJSONArray[runValueSnapshotRecord](output)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := make(map[string][]string, len(records))
+	for _, record := range records {
+		name := strings.TrimSpace(record.Name)
+		if name == "" {
+			continue
+		}
+		paths := make([]string, 0, 1)
+		addIfExecutablePath(&paths, record.Command)
+		snapshot[name] = uniqueSorted(paths)
+	}
+	return snapshot, nil
+}
+
+func decodeJSONArray[T any](output []byte) ([]T, error) {
+	trimmed := bytes.TrimSpace(output)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+
+	if trimmed[0] == '[' {
+		var records []T
+		if err := json.Unmarshal(trimmed, &records); err != nil {
+			return nil, err
+		}
+		return records, nil
+	}
+
+	var record T
+	if err := json.Unmarshal(trimmed, &record); err != nil {
+		return nil, err
+	}
+	return []T{record}, nil
+}
+
+func runCommandOutput(timeout time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	output, err := exec.CommandContext(ctx, name, args...).Output()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return nil, fmt.Errorf("%s timed out after %s", name, timeout)
+	}
+	return output, err
+}
+
+func runCommandCombinedOutput(timeout time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return output, fmt.Errorf("%s timed out after %s", name, timeout)
+	}
+	return output, err
+}
+
+func commandSucceeds(timeout time.Duration, name string, args ...string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	return exec.CommandContext(ctx, name, args...).Run() == nil
+}
+
+func psStringArrayLiteral(items []string) string {
+	if len(items) == 0 {
+		return "@()"
+	}
+
+	quoted := make([]string, 0, len(items))
+	for _, item := range items {
+		quoted = append(quoted, "'"+strings.ReplaceAll(item, "'", "''")+"'")
+	}
+	return "@(" + strings.Join(quoted, ",") + ")"
+}
+
 func taskExists(taskName string) bool {
-	cmd := exec.Command("schtasks", "/Query", "/TN", taskName)
-	return cmd.Run() == nil
+	return commandSucceeds(externalCommandTimeout, "schtasks", "/Query", "/TN", taskName)
 }
 
 func runValueExists(valueName string) bool {
-	cmd := exec.Command("reg", "query", runKeyPath, "/v", valueName)
-	return cmd.Run() == nil
+	return commandSucceeds(externalCommandTimeout, "reg", "query", runKeyPath, "/v", valueName)
 }
 
 func discoverTaskExecutablePaths(taskName string) []string {
-	cmd := exec.Command("schtasks", "/Query", "/TN", taskName, "/XML")
-	output, err := cmd.Output()
+	output, err := runCommandOutput(externalCommandTimeout, "schtasks", "/Query", "/TN", taskName, "/XML")
 	if err != nil {
 		return nil
 	}
@@ -719,13 +1032,11 @@ func discoverTaskExecutablePaths(taskName string) []string {
 }
 
 func serviceExists(serviceName string) bool {
-	cmd := exec.Command("sc.exe", "query", serviceName)
-	return cmd.Run() == nil
+	return commandSucceeds(externalCommandTimeout, "sc.exe", "query", serviceName)
 }
 
 func discoverServiceExecutablePaths(serviceName string) []string {
-	cmd := exec.Command("sc.exe", "qc", serviceName)
-	output, err := cmd.Output()
+	output, err := runCommandOutput(externalCommandTimeout, "sc.exe", "qc", serviceName)
 	if err != nil {
 		return nil
 	}
@@ -739,8 +1050,7 @@ func discoverServiceExecutablePaths(serviceName string) []string {
 }
 
 func discoverRunValueExecutablePaths(valueName string) []string {
-	cmd := exec.Command("reg", "query", runKeyPath, "/v", valueName)
-	output, err := cmd.Output()
+	output, err := runCommandOutput(externalCommandTimeout, "reg", "query", runKeyPath, "/v", valueName)
 	if err != nil {
 		return nil
 	}
@@ -777,13 +1087,13 @@ func collectKnownPaths(def strainDefinition, host hostPaths) []string {
 	return uniqueSorted(paths)
 }
 
-func expandTempGlobs(def strainDefinition, tempRoot string) []string {
+func expandTempGlobs(patterns []string, tempRoot string) []string {
 	if strings.TrimSpace(tempRoot) == "" {
 		return nil
 	}
 
 	paths := make([]string, 0)
-	for _, pattern := range def.TempGlobs {
+	for _, pattern := range patterns {
 		matches, err := filepath.Glob(filepath.Join(tempRoot, pattern))
 		if err != nil {
 			continue
@@ -802,8 +1112,7 @@ func deleteScheduledTask(taskName string, dryRun bool) (bool, bool, error) {
 	if dryRun {
 		return true, false, nil
 	}
-	cmd := exec.Command("schtasks", "/Delete", "/TN", taskName, "/F")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := runCommandCombinedOutput(externalCommandTimeout, "schtasks", "/Delete", "/TN", taskName, "/F"); err != nil {
 		return false, false, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return true, false, nil
@@ -817,7 +1126,7 @@ func deleteService(serviceName string, dryRun bool) (bool, bool, error) {
 		return true, false, nil
 	}
 
-	if output, err := exec.Command("sc.exe", "stop", serviceName).CombinedOutput(); err != nil {
+	if output, err := runCommandCombinedOutput(externalCommandTimeout, "sc.exe", "stop", serviceName); err != nil {
 		lower := strings.ToLower(string(output))
 		if !strings.Contains(lower, "service has not been started") &&
 			!strings.Contains(lower, "service not active") &&
@@ -826,8 +1135,7 @@ func deleteService(serviceName string, dryRun bool) (bool, bool, error) {
 		}
 	}
 
-	cmd := exec.Command("sc.exe", "delete", serviceName)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := runCommandCombinedOutput(externalCommandTimeout, "sc.exe", "delete", serviceName); err != nil {
 		return false, false, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
 
@@ -841,8 +1149,7 @@ func deleteRunValue(valueName string, dryRun bool) (bool, bool, error) {
 	if dryRun {
 		return true, false, nil
 	}
-	cmd := exec.Command("reg", "delete", runKeyPath, "/v", valueName, "/f")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := runCommandCombinedOutput(externalCommandTimeout, "reg", "delete", runKeyPath, "/v", valueName, "/f"); err != nil {
 		return false, false, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return true, false, nil
@@ -855,16 +1162,14 @@ func killProcess(process processMatch, dryRun bool) (bool, bool, error) {
 	if dryRun {
 		return true, false, nil
 	}
-	cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(process.PID))
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := runCommandCombinedOutput(externalCommandTimeout, "taskkill", "/F", "/T", "/PID", strconv.Itoa(process.PID)); err != nil {
 		return false, false, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return true, false, nil
 }
 
 func processRunning(pid int) bool {
-	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/NH", "/FO", "CSV")
-	output, err := cmd.Output()
+	output, err := runCommandOutput(externalCommandTimeout, "tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/NH", "/FO", "CSV")
 	if err != nil {
 		return false
 	}
@@ -974,6 +1279,39 @@ func sortedKeys(set map[string]bool) []string {
 	}
 	sort.Strings(items)
 	return items
+}
+
+func sortedStringSliceMapKeys(set map[string][]string) []string {
+	items := make([]string, 0, len(set))
+	for item := range set {
+		items = append(items, item)
+	}
+	sort.Strings(items)
+	return items
+}
+
+func pathsForRemoval(dynamicPaths []string, knownPaths []string) []string {
+	paths := uniqueSorted(append(append([]string(nil), dynamicPaths...), knownPaths...))
+	sort.Slice(paths, func(i, j int) bool {
+		leftDepth := pathDepth(paths[i])
+		rightDepth := pathDepth(paths[j])
+		if leftDepth != rightDepth {
+			return leftDepth > rightDepth
+		}
+		if len(paths[i]) != len(paths[j]) {
+			return len(paths[i]) > len(paths[j])
+		}
+		return strings.ToLower(paths[i]) < strings.ToLower(paths[j])
+	})
+	return paths
+}
+
+func pathDepth(candidate string) int {
+	cleaned := normalizePath(candidate)
+	if cleaned == "" {
+		return 0
+	}
+	return strings.Count(cleaned, `\`) + strings.Count(cleaned, `/`)
 }
 
 func matchProcesses(processes []runningProcess, knownNames []string, knownInternalNames []string, knownRoots []string, exactPaths []string, selfPID int, selfPath string) []processMatch {

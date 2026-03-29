@@ -249,3 +249,89 @@ func TestMatchProcessesDoesNotMatchUnrelatedMetadata(t *testing.T) {
 		t.Fatalf("matchProcesses() returned %d matches, want 0", len(matches))
 	}
 }
+
+func TestParseTaskSnapshotOutputHandlesSingleObject(t *testing.T) {
+	output := []byte(`{"Name":"T1Agent","Commands":["C:\\Users\\Charlie\\AppData\\Local\\T1Agent\\t1-agent.exe","cmd.exe /c exit 0"]}`)
+
+	got, err := parseTaskSnapshotOutput(output)
+	if err != nil {
+		t.Fatalf("parseTaskSnapshotOutput() returned error: %v", err)
+	}
+
+	want := map[string][]string{
+		"T1Agent": {`C:\Users\Charlie\AppData\Local\T1Agent\t1-agent.exe`},
+	}
+	if !slices.Equal(got["T1Agent"], want["T1Agent"]) {
+		t.Fatalf("parseTaskSnapshotOutput() = %v, want %v", got, want)
+	}
+}
+
+func TestParseServiceSnapshotOutputExtractsExecutablePath(t *testing.T) {
+	output := []byte(`[{"Name":"CordycepsD1","PathName":"\"C:\\ProgramData\\CordycepsD1\\bin\\d1-agent.exe\" --service"}]`)
+
+	got, err := parseServiceSnapshotOutput(output)
+	if err != nil {
+		t.Fatalf("parseServiceSnapshotOutput() returned error: %v", err)
+	}
+
+	want := []string{`C:\ProgramData\CordycepsD1\bin\d1-agent.exe`}
+	if !slices.Equal(got["CordycepsD1"], want) {
+		t.Fatalf("parseServiceSnapshotOutput() = %v, want %v", got, want)
+	}
+}
+
+func TestParseRunValueSnapshotOutputExtractsExecutablePath(t *testing.T) {
+	output := []byte(`[{"Name":"SE1Agent","Command":"C:\\ProgramData\\SE1Agent\\se1-agent.exe --logon"}]`)
+
+	got, err := parseRunValueSnapshotOutput(output)
+	if err != nil {
+		t.Fatalf("parseRunValueSnapshotOutput() returned error: %v", err)
+	}
+
+	want := []string{`C:\ProgramData\SE1Agent\se1-agent.exe`}
+	if !slices.Equal(got["SE1Agent"], want) {
+		t.Fatalf("parseRunValueSnapshotOutput() = %v, want %v", got, want)
+	}
+}
+
+func TestParseProcessListOutputSortsAndNormalizes(t *testing.T) {
+	output := []byte(`[
+		{"ProcessId":22,"Name":"z-agent.exe","ExecutablePath":"C:\\Agents\\z-agent.exe","CompanyName":"Cordyceps","FileDescription":"","ProductName":"","OriginalFilename":"","InternalName":"","Comments":""},
+		{"ProcessId":11,"Name":"A-Agent.exe","ExecutablePath":"C:\\Agents\\a-agent.exe","CompanyName":"Cordyceps","FileDescription":"Agent","ProductName":"Cordyceps Agent","OriginalFilename":"a-agent.exe","InternalName":"a-agent","Comments":"Cordyceps Windows agent"}
+	]`)
+
+	got, err := parseProcessListOutput(output)
+	if err != nil {
+		t.Fatalf("parseProcessListOutput() returned error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("parseProcessListOutput() returned %d processes, want 2", len(got))
+	}
+	if got[0].PID != 11 || got[0].Name != "a-agent.exe" {
+		t.Fatalf("parseProcessListOutput() first process = %+v, want pid 11 name a-agent.exe", got[0])
+	}
+	if got[1].PID != 22 || got[1].Name != "z-agent.exe" {
+		t.Fatalf("parseProcessListOutput() second process = %+v, want pid 22 name z-agent.exe", got[1])
+	}
+}
+
+func TestPathsForRemovalPrefersDeeperPaths(t *testing.T) {
+	got := pathsForRemoval(
+		[]string{
+			`C:\Root`,
+			`C:\Root\bin\agent.exe`,
+		},
+		[]string{
+			`C:\Root\bin`,
+		},
+	)
+
+	want := []string{
+		`C:\Root\bin\agent.exe`,
+		`C:\Root\bin`,
+		`C:\Root`,
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("pathsForRemoval() = %v, want %v", got, want)
+	}
+}

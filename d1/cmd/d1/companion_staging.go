@@ -16,10 +16,10 @@ func stageManagedCompanionsIfPresent(agentExecutablePath string, paths resilienc
 
 	var errs []error
 
-	if err := stageExecutableIfPresent(agentExecutablePath, resilience.GuardianExecutablePath(paths), discoverGuardianSource); err != nil {
+	if err := stageExecutableIfPresent(agentExecutablePath, resilience.GuardianExecutablePath(paths), bundledGuardianName, discoverGuardianSource); err != nil {
 		errs = append(errs, fmt.Errorf("stage guardian executable: %w", err))
 	}
-	if err := stageExecutableIfPresent(agentExecutablePath, resilience.HeartbeatExecutablePath(paths), discoverHeartbeatSource); err != nil {
+	if err := stageExecutableIfPresent(agentExecutablePath, resilience.HeartbeatExecutablePath(paths), bundledHeartbeatName, discoverHeartbeatSource); err != nil {
 		errs = append(errs, fmt.Errorf("stage heartbeat executable: %w", err))
 	}
 
@@ -35,8 +35,15 @@ func stageManagedCompanionsIfPresent(agentExecutablePath string, paths resilienc
 func stageExecutableIfPresent(
 	agentExecutablePath string,
 	targetPath string,
+	bundledFileName string,
 	discover func(string) (string, error),
 ) error {
+	if staged, err := stageBundledExecutableIfPresent(bundledFileName, targetPath); err != nil {
+		return err
+	} else if staged {
+		return nil
+	}
+
 	sourcePath, err := discover(agentExecutablePath)
 	if err != nil {
 		return err
@@ -48,6 +55,12 @@ func stageExecutableIfPresent(
 }
 
 func stageRestoreDroneArtifactsIfPresent(agentExecutablePath string, paths resilience.Paths, role string) error {
+	if staged, err := stageBundledDroneArtifactsIfPresent(paths, role); err != nil {
+		return err
+	} else if staged {
+		return nil
+	}
+
 	sourcePath, err := discoverRestoreDroneSource(agentExecutablePath, paths, role)
 	if err != nil {
 		return err

@@ -26,6 +26,14 @@ func TestStageManagedCompanionsIfPresentSeedsManagedTargets(t *testing.T) {
 		writeTestExecutable(t, filepath.Join(distDir, "d1-drone-"+role+".exe"), "drone-"+role)
 	}
 
+	originalReader := readBundledCompanion
+	readBundledCompanion = func(string) ([]byte, error) {
+		return nil, os.ErrNotExist
+	}
+	t.Cleanup(func() {
+		readBundledCompanion = originalReader
+	})
+
 	if err := stageManagedCompanionsIfPresent(agentPath, paths); err != nil {
 		t.Fatalf("stageManagedCompanionsIfPresent() error = %v", err)
 	}
@@ -36,6 +44,54 @@ func TestStageManagedCompanionsIfPresentSeedsManagedTargets(t *testing.T) {
 
 	for _, role := range resilience.DroneRoles() {
 		want := "drone-" + role
+		assertTestExecutablePayload(t, resilience.DroneExecutablePath(paths, role), want)
+		for _, backupPath := range resilience.DroneBackupExecutablePaths(paths, role) {
+			assertTestExecutablePayload(t, backupPath, want)
+		}
+		assertTestExecutablePayload(t, resilience.DroneTemplatePath(paths, role), want)
+	}
+}
+
+func TestStageManagedCompanionsIfPresentUsesBundledAssets(t *testing.T) {
+	tempDir := t.TempDir()
+	agentPath := filepath.Join(tempDir, "source", "d1.exe")
+	paths := resilience.Paths{
+		ConfigPath:      filepath.Join(tempDir, "appdata", "D1Agent", "config.json"),
+		InstallRoot:     filepath.Join(tempDir, "localappdata", "D1Agent"),
+		ProgramDataRoot: filepath.Join(tempDir, "programdata", "CordycepsD1"),
+	}
+
+	writeTestExecutable(t, agentPath, "agent")
+
+	bundledPayloads := map[string]string{
+		bundledGuardianName:  "guardian-bundle",
+		bundledHeartbeatName: "heartbeat-bundle",
+	}
+	for _, role := range resilience.DroneRoles() {
+		bundledPayloads[bundledDroneName(role)] = "drone-bundle-" + role
+	}
+
+	originalReader := readBundledCompanion
+	readBundledCompanion = func(name string) ([]byte, error) {
+		if payload, ok := bundledPayloads[name]; ok {
+			return []byte("MZ" + payload), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	t.Cleanup(func() {
+		readBundledCompanion = originalReader
+	})
+
+	if err := stageManagedCompanionsIfPresent(agentPath, paths); err != nil {
+		t.Fatalf("stageManagedCompanionsIfPresent() error = %v", err)
+	}
+
+	assertTestExecutablePayload(t, resilience.GuardianExecutablePath(paths), "guardian-bundle")
+	assertTestExecutablePayload(t, resilience.HeartbeatExecutablePath(paths), "heartbeat-bundle")
+	assertTestExecutablePayload(t, resilience.DroneColdSparePath(paths), "drone-bundle-1")
+
+	for _, role := range resilience.DroneRoles() {
+		want := "drone-bundle-" + role
 		assertTestExecutablePayload(t, resilience.DroneExecutablePath(paths, role), want)
 		for _, backupPath := range resilience.DroneBackupExecutablePaths(paths, role) {
 			assertTestExecutablePayload(t, backupPath, want)

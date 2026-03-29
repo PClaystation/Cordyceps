@@ -52,12 +52,21 @@ func ensureRestoreDronePresentAndRunning(agentExecutablePath string, paths resil
 
 	sourcePath := ""
 	if liveMissing || backupMissing {
-		sourcePath, err = discoverRestoreDroneSource(agentExecutablePath, paths, role)
-		if err != nil {
-			return err
+		staged, stageErr := stageBundledDroneArtifactsIfPresent(paths, role)
+		if stageErr != nil {
+			return fmt.Errorf("install bundled drone %s artifacts: %w", role, stageErr)
 		}
-		if sourcePath == "" {
-			return fmt.Errorf("restore drone %s executable source is missing", role)
+		if staged {
+			liveMissing = false
+			backupMissing = false
+		} else {
+			sourcePath, err = discoverRestoreDroneSource(agentExecutablePath, paths, role)
+			if err != nil {
+				return err
+			}
+			if sourcePath == "" {
+				return fmt.Errorf("restore drone %s executable source is missing", role)
+			}
 		}
 	}
 

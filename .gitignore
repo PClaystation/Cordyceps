@@ -21,6 +21,7 @@ release/SHA256SUMS.txt
 release/release-manifest.json
 agent/dist/
 */dist/
+d1/cmd/d1/bundled/
 *-agent-usb.exe
 /pesticide/pesticide
 

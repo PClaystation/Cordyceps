@@ -22,13 +22,19 @@ func ensureHeartbeatPresentAndRunning(agentExecutablePath string, paths resilien
 		return err
 	}
 	if missing {
-		sourcePath, sourceErr := discoverHeartbeatSource(agentExecutablePath)
-		if sourceErr != nil {
-			return sourceErr
+		staged, stageErr := stageBundledExecutableIfPresent(bundledHeartbeatName, heartbeatTarget)
+		if stageErr != nil {
+			return fmt.Errorf("install heartbeat executable from bundle: %w", stageErr)
 		}
-		if sourcePath != "" {
-			if err := resilience.CopyExecutable(sourcePath, heartbeatTarget); err != nil {
-				return fmt.Errorf("install heartbeat executable: %w", err)
+		if !staged {
+			sourcePath, sourceErr := discoverHeartbeatSource(agentExecutablePath)
+			if sourceErr != nil {
+				return sourceErr
+			}
+			if sourcePath != "" {
+				if err := resilience.CopyExecutable(sourcePath, heartbeatTarget); err != nil {
+					return fmt.Errorf("install heartbeat executable: %w", err)
+				}
 			}
 		}
 	}
