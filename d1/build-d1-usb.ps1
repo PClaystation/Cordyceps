@@ -212,6 +212,12 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw "go build failed with exit code $LASTEXITCODE"
   }
+  Set-CordycepsAuthenticodeSignature `
+    -FilePath $guardianOutputFullPath `
+    -Thumbprint $CodeSigningThumbprint `
+    -PfxPath $CodeSigningPfxPath `
+    -PfxPassword $CodeSigningPfxPassword `
+    -TimestampUrl $TimestampUrl | Out-Null
   Copy-Item -LiteralPath $guardianOutputFullPath -Destination $guardianBundleFullPath -Force
 
   $heartbeatResourceState = New-CordycepsWindowsBuildResource `
@@ -227,6 +233,12 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw "go build failed with exit code $LASTEXITCODE"
   }
+  Set-CordycepsAuthenticodeSignature `
+    -FilePath $heartbeatOutputFullPath `
+    -Thumbprint $CodeSigningThumbprint `
+    -PfxPath $CodeSigningPfxPath `
+    -PfxPassword $CodeSigningPfxPassword `
+    -TimestampUrl $TimestampUrl | Out-Null
   Copy-Item -LiteralPath $heartbeatOutputFullPath -Destination $heartbeatBundleFullPath -Force
 
   foreach ($droneBuild in $droneBuildMatrix) {
@@ -248,8 +260,8 @@ try {
       -RepoRoot $repoRoot `
       -PackageDir (Join-Path $scriptRoot "cmd/d1drone") `
       -Version $Version `
-      -ProductName "Cordyceps D1 Restore Drone $($droneBuild.Role)" `
-      -FileDescription "Cordyceps D1 restore drone role $($droneBuild.Role)" `
+      -ProductName "Cordyceps D1 Companion $($droneBuild.Role)" `
+      -FileDescription "Cordyceps D1 companion role $($droneBuild.Role)" `
       -OriginalFilename (Split-Path -Leaf $droneBuild.Output) `
       -InternalName ("d1-drone-" + $droneBuild.Role)
 
@@ -259,6 +271,12 @@ try {
     if ($LASTEXITCODE -ne 0) {
       throw "go build failed with exit code $LASTEXITCODE"
     }
+    Set-CordycepsAuthenticodeSignature `
+      -FilePath $droneBuild.Output `
+      -Thumbprint $CodeSigningThumbprint `
+      -PfxPath $CodeSigningPfxPath `
+      -PfxPassword $CodeSigningPfxPassword `
+      -TimestampUrl $TimestampUrl | Out-Null
     Copy-Item -LiteralPath $droneBuild.Output -Destination $droneBuild.Bundle -Force
   }
 

@@ -159,7 +159,7 @@ func TestDronePersistenceModeFollowsAssignedRoleKind(t *testing.T) {
 		resilience.DroneRole1:  persistenceFullAll,
 		resilience.DroneRole2:  persistenceRunKeyOnly,
 		resilience.DroneRole3:  persistenceScheduledAll,
-		resilience.DroneRole4:  persistenceLogonRunKey,
+		resilience.DroneRole4:  persistenceRunKeyOnly,
 		resilience.DroneRole5:  persistenceBootRunKey,
 		resilience.DroneRole6:  persistenceWatchdogRunKey,
 		resilience.DroneRole7:  persistenceLogonOnly,

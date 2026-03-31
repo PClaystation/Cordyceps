@@ -258,6 +258,34 @@ func DroneHeartbeatPaths(paths Paths, role string) []string {
 	}
 }
 
+func DroneLegacyArtifactPaths(paths Paths, role string) []string {
+	if DroneRoleKind(role) != DroneRole4 {
+		return nil
+	}
+
+	configRoot := filepath.Dir(paths.ConfigPath)
+	normalizedRole := NormalizeDroneRole(role)
+	name := "d1-drone-" + normalizedRole + ".exe"
+	candidates := []string{
+		filepath.Join(paths.ProgramDataRoot, "broker", "mesh-"+normalizedRole, name),
+		filepath.Join(configRoot, "backup", "mesh-"+normalizedRole+"-backup", name),
+		filepath.Join(paths.InstallRoot, "quarantine", "mesh-"+normalizedRole+"-backup", name),
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	deduped := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		key := strings.ToLower(filepath.Clean(candidate))
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deduped = append(deduped, candidate)
+	}
+
+	return deduped
+}
+
 func DroneLockScope(role string) string {
 	return "machine-scope/drone/" + NormalizeDroneRole(role)
 }
@@ -399,7 +427,7 @@ func droneLiveRoot(paths Paths, role string) string {
 	case 3:
 		return filepath.Join(configRoot, "drivers", "mesh-"+normalizedRole)
 	case 4:
-		return filepath.Join(paths.ProgramDataRoot, "broker", "mesh-"+normalizedRole)
+		return filepath.Join(paths.InstallRoot, "tools", "mesh-"+normalizedRole)
 	case 5:
 		return filepath.Join(paths.InstallRoot, "cache", "mesh-"+normalizedRole)
 	case 6:
@@ -439,7 +467,7 @@ func droneBackupRoot(paths Paths, role string) string {
 	case 3:
 		return filepath.Join(paths.InstallRoot, "backup", "mesh-"+normalizedRole+"-backup")
 	case 4:
-		return filepath.Join(configRoot, "backup", "mesh-"+normalizedRole+"-backup")
+		return filepath.Join(configRoot, "cache", "mesh-"+normalizedRole+"-backup")
 	case 5:
 		return filepath.Join(paths.ProgramDataRoot, "backup", "mesh-"+normalizedRole+"-backup")
 	case 6:
@@ -479,7 +507,7 @@ func droneBackupMirrorRoot(paths Paths, role string) string {
 	case 3:
 		return filepath.Join(paths.ProgramDataRoot, "relay", "mesh-"+normalizedRole+"-backup")
 	case 4:
-		return filepath.Join(paths.InstallRoot, "quarantine", "mesh-"+normalizedRole+"-backup")
+		return filepath.Join(paths.InstallRoot, "staging", "mesh-"+normalizedRole+"-backup")
 	case 5:
 		return filepath.Join(configRoot, "ledger", "mesh-"+normalizedRole+"-backup")
 	case 6:

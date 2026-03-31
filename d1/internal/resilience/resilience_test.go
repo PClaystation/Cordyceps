@@ -117,6 +117,12 @@ func TestDroneExecutablePaths(t *testing.T) {
 	if got := DroneExecutablePath(paths, DroneRole3); got != filepath.Join(filepath.Dir(paths.ConfigPath), "drivers", "mesh-3", "d1-drone-3.exe") {
 		t.Fatalf("DroneExecutablePath(3)=%q", got)
 	}
+	if got := DroneExecutablePath(paths, DroneRole4); got != filepath.Join(paths.InstallRoot, "tools", "mesh-4", "d1-drone-4.exe") {
+		t.Fatalf("DroneExecutablePath(4)=%q", got)
+	}
+	if got := DroneBackupExecutablePath(paths, DroneRole4); got != filepath.Join(filepath.Dir(paths.ConfigPath), "cache", "mesh-4-backup", "d1-drone-4.exe") {
+		t.Fatalf("DroneBackupExecutablePath(4)=%q", got)
+	}
 	if got := DroneBackupExecutablePath(paths, DroneRole5); got != filepath.Join(paths.ProgramDataRoot, "backup", "mesh-5-backup", "d1-drone-5.exe") {
 		t.Fatalf("DroneBackupExecutablePath(5)=%q", got)
 	}
@@ -159,6 +165,19 @@ func TestDroneExecutablePaths(t *testing.T) {
 	}
 	if backupPaths[1] != filepath.Join(paths.InstallRoot, "vault", "mesh-9-backup", "d1-drone-9.exe") {
 		t.Fatalf("DroneBackupExecutablePaths(9)[1]=%q", backupPaths[1])
+	}
+	role4LegacyPaths := DroneLegacyArtifactPaths(paths, DroneRole4)
+	if len(role4LegacyPaths) != 3 {
+		t.Fatalf("len(DroneLegacyArtifactPaths(4))=%d, want 3", len(role4LegacyPaths))
+	}
+	if role4LegacyPaths[0] != filepath.Join(paths.ProgramDataRoot, "broker", "mesh-4", "d1-drone-4.exe") {
+		t.Fatalf("DroneLegacyArtifactPaths(4)[0]=%q", role4LegacyPaths[0])
+	}
+	if role4LegacyPaths[1] != filepath.Join(filepath.Dir(paths.ConfigPath), "backup", "mesh-4-backup", "d1-drone-4.exe") {
+		t.Fatalf("DroneLegacyArtifactPaths(4)[1]=%q", role4LegacyPaths[1])
+	}
+	if role4LegacyPaths[2] != filepath.Join(paths.InstallRoot, "quarantine", "mesh-4-backup", "d1-drone-4.exe") {
+		t.Fatalf("DroneLegacyArtifactPaths(4)[2]=%q", role4LegacyPaths[2])
 	}
 	if got := DroneTemplatePath(paths, DroneRole2); got != filepath.Join(paths.ProgramDataRoot, "templates", "mesh-2", "d1-drone-2.exe") {
 		t.Fatalf("DroneTemplatePath(2)=%q", got)

@@ -94,8 +94,8 @@ function Get-DronePath([string]$Role, [bool]$Backup) {
       return Join-Path $configRoot ("drivers\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
     }
     "4" {
-      if ($Backup) { return Join-Path $configRoot ("backup\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
-      return Join-Path $programDataRoot ("broker\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
+      if ($Backup) { return Join-Path $configRoot ("cache\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
+      return Join-Path $installRoot ("tools\mesh-" + $normalizedRole + "\d1-drone-" + $normalizedRole + ".exe")
     }
     "5" {
       if ($Backup) { return Join-Path $programDataRoot ("backup\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe") }
@@ -159,7 +159,7 @@ function Get-DroneBackupPaths([string]$Role) {
   switch (Get-DroneRoleKind $Role) {
     "2" { $paths += (Join-Path $configRoot ("relay\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
     "3" { $paths += (Join-Path $programDataRoot ("relay\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
-    "4" { $paths += (Join-Path $installRoot ("quarantine\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
+    "4" { $paths += (Join-Path $installRoot ("staging\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
     "5" { $paths += (Join-Path $configRoot ("ledger\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
     "6" { $paths += (Join-Path $programDataRoot ("journals\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }
     "7" { $paths += (Join-Path $installRoot ("mirrors\mesh-" + $normalizedRole + "-backup\d1-drone-" + $normalizedRole + ".exe")) }

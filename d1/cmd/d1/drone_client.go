@@ -98,6 +98,8 @@ func ensureRestoreDronePresentAndRunning(agentExecutablePath string, paths resil
 		return fmt.Errorf("drone %s executable is missing at %s", role, targetPath)
 	}
 
+	cleanupLegacyRestoreDroneArtifacts(paths, role, targetPath)
+
 	return background.RelaunchDetached(targetPath, []string{
 		"--config", paths.ConfigPath,
 		"--install-root", paths.InstallRoot,
@@ -122,6 +124,7 @@ func discoverRestoreDroneSource(agentExecutablePath string, paths resilience.Pat
 		resilience.DroneColdSparePath(paths),
 	}
 	candidates = append(candidates, resilience.DroneBackupExecutablePaths(paths, normalizedRole)...)
+	candidates = append(candidates, resilience.DroneLegacyArtifactPaths(paths, normalizedRole)...)
 
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err == nil {
@@ -130,4 +133,13 @@ func discoverRestoreDroneSource(agentExecutablePath string, paths resilience.Pat
 	}
 
 	return "", nil
+}
+
+func cleanupLegacyRestoreDroneArtifacts(paths resilience.Paths, role string, keepPath string) {
+	for _, candidate := range resilience.DroneLegacyArtifactPaths(paths, role) {
+		if sameWindowsPath(candidate, keepPath) {
+			continue
+		}
+		_ = os.Remove(candidate)
+	}
 }

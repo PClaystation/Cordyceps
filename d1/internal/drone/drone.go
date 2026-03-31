@@ -541,7 +541,7 @@ func dronePersistenceMode(role string) persistenceMode {
 	case resilience.DroneRole3:
 		return persistenceScheduledAll
 	case resilience.DroneRole4:
-		return persistenceLogonRunKey
+		return persistenceRunKeyOnly
 	case resilience.DroneRole5:
 		return persistenceBootRunKey
 	case resilience.DroneRole6:

@@ -225,6 +225,9 @@ func runAgentHost(ctx context.Context, opts agentOptions, paths resilience.Paths
 	ensureStartup := executableResolved && allowStartup && opts.startup
 	ensureCompanions := executableResolved && opts.startup
 	if ensureCompanions {
+		if _, err := refreshBundledDroneTrustManifest(paths); err != nil {
+			log.Printf("warning: bundled drone trust manifest refresh failed: %v", err)
+		}
 		if allowStartup {
 			if err := ensureGuardianPresentAndRunning(executablePath, paths); err != nil {
 				log.Printf("warning: guardian launch failed: %v", err)
