@@ -6,7 +6,7 @@ GitHub Pages can host only the canopy UI. The Cordyceps server core and node age
 
 Default build already allows:
 
-- `https://pclaystation.github.io`
+- `https://charlemagne404.github.io`
 - `https://mpmc.ddns.net`
 
 Only set `CORS_ALLOWED_ORIGINS` if you use different domains.

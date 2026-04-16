@@ -4,10 +4,10 @@ import path from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 
 const DEFAULT_CORS_ALLOWED_ORIGINS = [
-  "https://pclaystation.github.io",
+  "https://charlemagne404.github.io",
   "https://mpmc.ddns.net",
 ].join(",");
-const DEFAULT_PWA_PUBLIC_URL = "https://pclaystation.github.io/Cordyceps/";
+const DEFAULT_PWA_PUBLIC_URL = "https://charlemagne404.github.io/Cordyceps/";
 
 const PHONE_PLACEHOLDER = "change-me-phone-token";
 const BOOTSTRAP_PLACEHOLDER = "change-me-bootstrap-token";

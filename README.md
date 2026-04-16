@@ -183,7 +183,7 @@ Notes:
   - `ENFORCE_HTTPS_UPDATE_URL`
   - `UPDATE_REQUIRE_SIGNATURE` + `UPDATE_SIGNING_KEYS` (phase 2 signed-package hardening)
   - `ALLOW_AUTOMATIC_UPDATES` (default `false`; keeps update policy queueing/manual updates under operator control)
-  - `CORS_ALLOWED_ORIGINS` (comma-separated explicit origins; defaults already include `https://pclaystation.github.io` and `https://mpmc.ddns.net`)
+  - `CORS_ALLOWED_ORIGINS` (comma-separated explicit origins; defaults already include `https://charlemagne404.github.io` and `https://mpmc.ddns.net`)
 5. Install and run (from repo root):
 
 ```bash
@@ -476,7 +476,7 @@ GitHub Pages can host the client only (not your Node server/agent).
    - In GitHub repo settings, set Pages source to `GitHub Actions`
 2. In the client, set `API base URL` to `https://mpmc.ddns.net`
 3. Server CORS:
-   - Defaults already include `https://pclaystation.github.io` and `https://mpmc.ddns.net`
+   - Defaults already include `https://charlemagne404.github.io` and `https://mpmc.ddns.net`
    - If you change domains later, set `CORS_ALLOWED_ORIGINS` accordingly
 
 Detailed guide: [docs/github-pages.md](docs/github-pages.md)
