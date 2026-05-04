@@ -39,7 +39,7 @@ function New-CordycepsWindowsBuildResource {
     [Parameter(Mandatory = $true)]
     [string]$InternalName,
 
-    [string]$CompanyName = "Charlie Arnerstal",
+    [string]$CompanyName = "Continental",
 
     [string]$MinimumOs = "win7"
   )
