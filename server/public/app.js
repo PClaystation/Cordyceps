@@ -1313,6 +1313,57 @@ function formatInspectValue(value) {
   return String(value);
 }
 
+function getDeviceInfoArray(deviceInfo, key) {
+  const value = deviceInfo && typeof deviceInfo === "object" ? deviceInfo[key] : null;
+  return Array.isArray(value) ? value : [];
+}
+
+function renderNetworkInspectBlock(deviceInfo) {
+  const adapters = getDeviceInfoArray(deviceInfo, "network_adapters").filter(
+    (entry) => entry && typeof entry === "object" && !Array.isArray(entry),
+  );
+  const localIPs = getDeviceInfoArray(deviceInfo, "local_ips");
+  const macAddresses = [...new Set(
+    adapters
+      .map((entry) => String(entry.mac || "").trim().toLowerCase())
+      .filter(Boolean),
+  )];
+
+  const networkBlock = document.createElement("div");
+  networkBlock.className = "device-inspect-grid";
+
+  networkBlock.appendChild(
+    renderInspectKeyValueGrid([
+      { key: "Adapter count", value: adapters.length },
+      { key: "Local IPs", value: localIPs },
+      { key: "MAC addresses", value: macAddresses },
+    ]),
+  );
+
+  if (adapters.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "history-message";
+    empty.textContent = "No network adapter snapshot reported.";
+    networkBlock.appendChild(empty);
+    return networkBlock;
+  }
+
+  for (const adapter of adapters.slice(0, 12)) {
+    networkBlock.appendChild(
+      renderInspectKeyValueGrid([
+        { key: "Interface", value: adapter.name || "n/a" },
+        { key: "Index", value: adapter.index },
+        { key: "MAC", value: adapter.mac || "n/a" },
+        { key: "MTU", value: adapter.mtu },
+        { key: "Flags", value: adapter.flags || [] },
+        { key: "Addresses", value: adapter.addresses || [] },
+      ]),
+    );
+  }
+
+  return networkBlock;
+}
+
 function renderInspectKeyValueGrid(entries) {
   const grid = document.createElement("div");
   grid.className = "inspect-kv-grid";
@@ -1639,18 +1690,27 @@ function renderDeviceInspectView(payload) {
   }
   appendDeviceInspectSection("Recent Commands", logsBlock);
 
+  appendDeviceInspectSection("Network Snapshot", renderNetworkInspectBlock(deviceInfo));
+
   appendDeviceInspectSection(
     "Device Info Snapshot",
     renderInspectKeyValueGrid([
+      { key: "Captured at", value: toLocalTimestamp(deviceInfo.captured_at) },
       { key: "Runtime OS", value: deviceInfo.runtime_os || deviceInfo.os_caption || "n/a" },
       { key: "Runtime Arch", value: deviceInfo.runtime_arch || "n/a" },
       { key: "Go version", value: deviceInfo.go_version || "n/a" },
+      { key: "Reported hostname", value: deviceInfo.hostname_reported || "n/a" },
+      { key: "Reported username", value: deviceInfo.username_reported || "n/a" },
+      { key: "Process ID", value: deviceInfo.process_id || "n/a" },
+      { key: "Executable path", value: deviceInfo.executable_path || "n/a" },
+      { key: "Working directory", value: deviceInfo.working_directory || "n/a" },
       { key: "CPU logical cores", value: deviceInfo.cpu_logical_cores || deviceInfo.cpu_logical_processors || "n/a" },
       { key: "CPU model", value: deviceInfo.cpu_name || "n/a" },
       { key: "Host model", value: deviceInfo.host_model || "n/a" },
       { key: "Total memory bytes", value: deviceInfo.host_total_memory_bytes || "n/a" },
       { key: "Free memory bytes", value: deviceInfo.host_free_memory_bytes || "n/a" },
       { key: "Timezone", value: deviceInfo.timezone || "n/a" },
+      { key: "Timezone offset minutes", value: deviceInfo.timezone_offset_minutes || "n/a" },
       { key: "Local IPs", value: deviceInfo.local_ips || [] },
     ]),
   );
