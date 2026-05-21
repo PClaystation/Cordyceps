@@ -20,13 +20,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/a1/internal/background"
-	"github.com/charliearnerstal/jarvis/a1/internal/commands"
-	"github.com/charliearnerstal/jarvis/a1/internal/config"
-	"github.com/charliearnerstal/jarvis/a1/internal/instance"
-	"github.com/charliearnerstal/jarvis/a1/internal/protocol"
-	"github.com/charliearnerstal/jarvis/a1/internal/startup"
-	"github.com/charliearnerstal/jarvis/a1/internal/updater"
+	"github.com/charliearnerstal/cordyceps/a1/internal/background"
+	"github.com/charliearnerstal/cordyceps/a1/internal/commands"
+	"github.com/charliearnerstal/cordyceps/a1/internal/config"
+	"github.com/charliearnerstal/cordyceps/a1/internal/instance"
+	"github.com/charliearnerstal/cordyceps/a1/internal/protocol"
+	"github.com/charliearnerstal/cordyceps/a1/internal/startup"
+	"github.com/charliearnerstal/cordyceps/a1/internal/updater"
 	"github.com/gorilla/websocket"
 )
 
@@ -84,7 +84,7 @@ func main() {
 		printVersionFlag   bool
 	)
 
-	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("A1_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://jarvis.example)")
+	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("A1_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://cordyceps.example)")
 	flag.StringVar(&deviceIDFlag, "device-id", "", "Device ID (e.g. a1)")
 	flag.StringVar(&displayNameFlag, "display-name", strings.TrimSpace(os.Getenv("A1_DISPLAY_NAME")), "Shared display name shown by remotes for this device")
 	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", resolveStringSetting("A1_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")

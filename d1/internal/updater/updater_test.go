@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
+	"github.com/charliearnerstal/cordyceps/d1/internal/resilience"
 )
 
 func TestDeviceConfigClass(t *testing.T) {

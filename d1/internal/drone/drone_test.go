@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/instance"
-	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
+	"github.com/charliearnerstal/cordyceps/d1/internal/instance"
+	"github.com/charliearnerstal/cordyceps/d1/internal/resilience"
 )
 
 func TestLoadTrustedHashesBootstrapsFromSelfExecutable(t *testing.T) {

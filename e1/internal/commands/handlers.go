@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/e1/internal/config"
-	"github.com/charliearnerstal/jarvis/e1/internal/protocol"
+	"github.com/charliearnerstal/cordyceps/e1/internal/config"
+	"github.com/charliearnerstal/cordyceps/e1/internal/protocol"
 )
 
 const commandTimeout = 8 * time.Second

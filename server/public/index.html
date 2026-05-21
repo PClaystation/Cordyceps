@@ -3,274 +3,425 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f172a" />
+    <meta name="theme-color" content="#081217" />
     <title>Cordyceps Remote</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./app.css" />
   </head>
   <body>
-    <main class="shell">
-      <header class="panel">
-        <h1>Cordyceps Remote</h1>
-        <p>Reliable command client for iPhone and desktop browsers.</p>
-      </header>
+    <main class="app-shell">
+      <aside class="sidebar panel">
+        <div class="sidebar-header">
+          <h1>Cordyceps Remote</h1>
+          <p class="sidebar-copy">Fleet-first control workspace with command dispatch and live command status.</p>
+        </div>
 
-      <section class="panel">
-        <h2>Connection</h2>
-        <div class="status-strip">
+        <div class="sidebar-status">
           <span id="connectionBadge" class="badge disconnected">Disconnected</span>
           <span id="lastSuccessLabel" class="muted">Last success: never</span>
         </div>
-        <label for="apiBaseInput">API base URL</label>
-        <input id="apiBaseInput" type="text" placeholder="https://mpmc.ddns.net" />
-        <label for="tokenInput">Phone API token</label>
-        <div class="row">
-          <input id="tokenInput" type="password" autocomplete="off" placeholder="Paste PHONE_API_TOKEN" />
-          <button id="saveTokenBtn" type="button">Save</button>
-          <button id="testTokenBtn" type="button">Test Token</button>
+
+        <div class="sidebar-metrics">
+          <article class="metric-card">
+            <span class="metric-label">Connection</span>
+            <strong id="metricConnectionValue" class="metric-value">Offline</strong>
+            <span id="metricConnectionHint" class="metric-hint">Save a token to connect.</span>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Devices</span>
+            <strong id="metricDeviceValue" class="metric-value">0</strong>
+            <span id="metricDeviceHint" class="metric-hint">No fleet data loaded.</span>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Groups</span>
+            <strong id="metricGroupValue" class="metric-value">0</strong>
+            <span id="metricGroupHint" class="metric-hint">No target groups loaded.</span>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">History</span>
+            <strong id="metricHistoryValue" class="metric-value">0</strong>
+            <span id="metricHistoryHint" class="metric-hint">No activity loaded.</span>
+          </article>
         </div>
-        <p id="authHint" class="muted"></p>
-        <div class="row">
-          <button id="loadDevicesBtn" type="button">Load Devices</button>
-          <span id="deviceSummary" class="muted">No data yet</span>
-        </div>
-        <label for="renameDeviceInput">Shared Device Name</label>
-        <div class="row">
-          <input id="renameDeviceInput" type="text" placeholder="t1" />
-          <input id="renameDisplayNameInput" type="text" placeholder="t1-Molly" />
-          <button id="renameDeviceBtn" type="button">Save Name</button>
-        </div>
-        <p class="muted">Saved on the server so every remote sees the same label. Leave the name empty to clear it.</p>
-        <label for="aliasDeviceInput">Device App Aliases</label>
-        <div class="row">
-          <input id="aliasDeviceInput" type="text" placeholder="t1" />
-          <input id="aliasKeyInput" type="text" placeholder="Alias phrase (e.g. browser work)" />
-          <input id="aliasAppInput" type="text" placeholder="Canonical app (e.g. chrome)" />
-          <button id="saveAliasBtn" type="button">Save Alias</button>
-        </div>
-        <p class="muted">Maps custom `open ...` phrases to built-in app targets for one device.</p>
-        <div id="deviceCards" class="device-cards"></div>
-        <div id="deviceInspectPanel" class="device-inspect hidden">
-          <div class="device-inspect-header">
-            <h3 id="deviceInspectTitle">Device Inspector</h3>
-            <div class="device-inspect-actions">
-              <button id="refreshDeviceInspectBtn" type="button">Refresh</button>
-              <button id="closeDeviceInspectBtn" type="button">Close</button>
+
+        <nav class="sidebar-nav" aria-label="Workspace menus">
+          <a class="section-link" href="#mainView" data-view="mainView">Control Deck</a>
+          <a class="section-link" href="#accessView" data-view="accessView">Access</a>
+          <a class="section-link" href="#operationsView" data-view="operationsView">Operations</a>
+        </nav>
+      </aside>
+
+      <section class="workspace">
+        <section id="mainView" class="view-panel is-active">
+          <div class="view-header">
+            <div>
+              <p class="view-kicker">Primary View</p>
+              <h2>Control Deck</h2>
+              <p class="section-intro">Select a device from the fleet, send a command, and watch command status without leaving the page.</p>
+            </div>
+            <div class="view-actions">
+              <button id="loadDevicesBtn" type="button">Refresh Fleet</button>
+              <span id="deviceSummary" class="muted">No data yet</span>
             </div>
           </div>
-          <p id="deviceInspectMeta" class="muted">Select a device card and choose Inspect.</p>
-          <div id="deviceInspectSections" class="history-list"></div>
-          <label for="deviceInspectRaw">Raw Device Info JSON</label>
-          <pre id="deviceInspectRaw" class="result">No device selected.</pre>
-        </div>
-        <ul id="deviceList" class="list"></ul>
-      </section>
 
-      <section class="panel">
-        <h2>Command</h2>
-        <div class="grid">
-          <div>
-        <label for="targetInput">Target</label>
-        <input id="targetInput" type="text" value="m1" placeholder="m1 or group:office" />
+          <div class="main-workspace">
+            <section class="panel command-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Quick Command</h3>
+                  <p class="section-intro">Target a selected device fast and send common commands without digging through menus.</p>
+                </div>
+              </div>
+
+              <div class="target-hud">
+                <div class="target-hud-copy">
+                  <span class="metric-label">Current Target</span>
+                  <strong id="currentTargetLabel" class="target-hud-value">m1</strong>
+                  <span id="currentTargetMeta" class="metric-hint">Pick a device tile to retarget instantly.</span>
+                </div>
+                <button id="focusFleetBtn" type="button">Choose From Fleet</button>
+              </div>
+
+              <div class="grid command-grid">
+                <div>
+                  <label for="targetInput">Target</label>
+                  <input id="targetInput" type="text" value="m1" placeholder="m1 or group:office" />
+                </div>
+                <div class="command-browser">
+                  <label for="actionSearchInput">Find Action</label>
+                  <input
+                    id="actionSearchInput"
+                    type="search"
+                    placeholder="Search commands, aliases, and apps"
+                    autocomplete="off"
+                  />
+                  <label for="actionSelect">Action</label>
+                  <select id="actionSelect">
+                    <option value="ping">ping</option>
+                  </select>
+                  <p id="actionSearchInfo" class="muted">Showing all commands.</p>
+                </div>
+              </div>
+
+              <label for="argInput">Argument (notify text or optional repeat count)</label>
+              <input id="argInput" type="text" placeholder="hello or 3" />
+
+              <div id="dangerZone" class="danger-zone hidden">
+                <strong>Danger Zone</strong>
+                <p>This command can interrupt the machine immediately. Confirm target before sending.</p>
+              </div>
+
+              <div class="row command-actions">
+                <button id="composeBtn" type="button">Build Command</button>
+                <button id="speakBtn" type="button">Speak</button>
+                <button id="sendBtn" type="button" class="primary">Send</button>
+              </div>
+
+              <label for="commandText">Command text</label>
+              <textarea id="commandText" rows="3" placeholder="m1 ping"></textarea>
+              <p id="speechInfo" class="muted">Speech: checking support...</p>
+            </section>
+
+            <section class="panel command-status-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Command Status</h3>
+                  <p class="section-intro">Latest request state and the most recent activity stream stay visible here.</p>
+                </div>
+              </div>
+
+              <section id="result" class="status-block">
+                <div class="result-grid">
+                  <div class="result-row">
+                    <span class="result-key">Status</span>
+                    <span id="resultStatus" class="result-val">idle</span>
+                  </div>
+                  <div class="result-row">
+                    <span class="result-key">Request ID</span>
+                    <span id="resultRequestId" class="result-val">-</span>
+                  </div>
+                  <div class="result-row">
+                    <span class="result-key">Latency</span>
+                    <span id="resultLatency" class="result-val">-</span>
+                  </div>
+                  <div class="result-row">
+                    <span class="result-key">Message</span>
+                    <span id="resultMessage" class="result-val">No request yet.</span>
+                  </div>
+                </div>
+                <pre id="resultBox" class="result">No request yet.</pre>
+              </section>
+
+              <section id="history" class="status-block history-panel">
+                <div class="history-toolbar">
+                  <input id="historyDeviceFilterInput" type="text" placeholder="Filter by device ID (optional)" />
+                  <button id="loadHistoryBtn" type="button">Load History</button>
+                  <button id="moreHistoryBtn" type="button">Load More</button>
+                </div>
+                <p id="historySummary" class="muted">No history loaded.</p>
+                <div id="historyTimeline" class="history-list"></div>
+              </section>
+            </section>
+
+            <section class="panel fleet-main-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Fleet</h3>
+                  <p class="section-intro">Click any device to target it, inspect it, or use the richer card data to decide what to send next.</p>
+                </div>
+              </div>
+              <div id="deviceCards" class="device-cards">
+                <article class="empty-state">
+                  <strong>No fleet data loaded yet.</strong>
+                  <p class="muted">Save your token in Access, then refresh the fleet to populate live device cards.</p>
+                </article>
+              </div>
+              <ul id="deviceList" class="list"></ul>
+            </section>
+
+            <aside id="deviceInspectPanel" class="panel device-inspect-panel hidden">
+              <div class="device-inspect-header">
+                <div>
+                  <h3 id="deviceInspectTitle">Device Inspector</h3>
+                  <p id="deviceInspectMeta" class="muted">Select a device card and choose Inspect.</p>
+                </div>
+                <div class="device-inspect-actions">
+                  <button id="refreshDeviceInspectBtn" type="button">Refresh</button>
+                  <button id="closeDeviceInspectBtn" type="button">Close</button>
+                </div>
+              </div>
+              <div id="deviceInspectSections" class="history-list"></div>
+              <label for="deviceInspectRaw">Raw Device Info JSON</label>
+              <pre id="deviceInspectRaw" class="result">No device selected.</pre>
+            </aside>
           </div>
-          <div class="command-browser">
-            <label for="actionSearchInput">Find Action</label>
-            <input
-              id="actionSearchInput"
-              type="search"
-              placeholder="Search commands, aliases, and apps"
-              autocomplete="off"
-            />
-            <label for="actionSelect">Action</label>
-            <select id="actionSelect">
-              <option value="ping">ping</option>
-            </select>
-            <p id="actionSearchInfo" class="muted">Showing all commands.</p>
+        </section>
+
+        <section id="accessView" class="view-panel hidden">
+          <div class="view-header">
+            <div>
+              <p class="view-kicker">Configuration</p>
+              <h2>Access</h2>
+              <p class="section-intro">Connection settings, target groups, and API key management.</p>
+            </div>
           </div>
-        </div>
-        <label for="argInput">Argument (notify text or optional repeat count)</label>
-        <input id="argInput" type="text" placeholder="hello or 3" />
-        <div id="dangerZone" class="danger-zone hidden">
-          <strong>Danger Zone</strong>
-          <p>This command can interrupt the machine immediately. Confirm target before sending.</p>
-        </div>
-        <div class="row">
-          <button id="composeBtn" type="button">Build Command</button>
-          <button id="speakBtn" type="button">Speak</button>
-          <button id="sendBtn" type="button" class="primary">Send</button>
-        </div>
-        <label for="commandText">Command text</label>
-        <textarea id="commandText" rows="3" placeholder="m1 ping"></textarea>
-        <p id="speechInfo" class="muted">Speech: checking support...</p>
-      </section>
 
-      <section class="panel">
-        <h2>Security Controls</h2>
-        <p class="muted">Dedicated controls for lockdown, quarantine, and kill-switch actions.</p>
-        <div class="danger-zone">
-          <strong>Danger Zone</strong>
-          <p>These actions can isolate the target immediately. Verify device ID and reason before applying.</p>
-        </div>
-        <label for="securityDeviceInput">Security Target Device</label>
-        <input id="securityDeviceInput" type="text" placeholder="t1" />
-        <label for="securityReasonInput">Reason (optional)</label>
-        <input id="securityReasonInput" type="text" placeholder="User requested lockdown" />
-        <label for="securityLockdownMinutesInput">Lockdown Minutes (1-240)</label>
-        <input id="securityLockdownMinutesInput" type="number" min="1" max="240" step="1" value="30" />
-        <div class="row">
-          <button id="securityLockdownBtn" type="button" class="primary">Trigger Lockdown</button>
-          <button id="securityQuarantineBtn" type="button">Quarantine</button>
-        </div>
-        <div class="row">
-          <button id="securityUnquarantineBtn" type="button">Lift Quarantine</button>
-          <button id="securityKillSwitchOnBtn" type="button">Enable Kill-Switch</button>
-        </div>
-        <div class="row">
-          <button id="securityKillSwitchOffBtn" type="button">Disable Kill-Switch</button>
-        </div>
-      </section>
+          <div class="access-workspace">
+            <section id="connection" class="panel connection-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Connection</h3>
+                  <p class="section-intro">Your API base and token stay stored locally and apply automatically.</p>
+                </div>
+              </div>
+              <label for="apiBaseInput">API base URL</label>
+              <input id="apiBaseInput" type="text" placeholder="https://mpmc.ddns.net" />
 
-      <section class="panel">
-        <h2>Admin Command</h2>
-        <div class="danger-zone">
-          <strong>Danger Zone</strong>
-          <p>Runs arbitrary shell commands on an admin-capable agent. Requires an authenticated token with admin scope.</p>
-        </div>
-        <label for="adminTargetInput">Admin Target</label>
-        <input id="adminTargetInput" type="text" value="a1" placeholder="a1" />
-        <label for="adminShellSelect">Shell</label>
-        <select id="adminShellSelect">
-          <option value="cmd">Command Prompt (cmd)</option>
-          <option value="powershell">PowerShell</option>
-        </select>
-        <label for="adminCommandInput">Command</label>
-        <textarea id="adminCommandInput" rows="3" placeholder="whoami"></textarea>
-        <div class="row">
-          <button id="sendAdminCommandBtn" type="button" class="primary">Run Admin Command</button>
-        </div>
-        <p class="muted">Required scopes: <code>commands:execute</code> + <code>admin:manage</code>.</p>
-      </section>
+              <label for="tokenInput">Phone API token</label>
+              <div class="row">
+                <input id="tokenInput" type="password" autocomplete="off" placeholder="Paste PHONE_API_TOKEN" />
+                <button id="saveTokenBtn" type="button">Apply</button>
+                <button id="testTokenBtn" type="button">Test Token</button>
+              </div>
 
-      <section class="panel">
-        <h2>Groups</h2>
-        <p class="muted">Create target groups for guarded bulk actions.</p>
-        <label for="groupIdInput">Group ID</label>
-        <input id="groupIdInput" type="text" placeholder="office" />
-        <label for="groupDisplayNameInput">Group Name</label>
-        <input id="groupDisplayNameInput" type="text" placeholder="Office PCs" />
-        <label for="groupDescriptionInput">Description (optional)</label>
-        <input id="groupDescriptionInput" type="text" placeholder="Shared workspace devices" />
-        <label for="groupMembersInput">Device IDs (comma-separated)</label>
-        <input id="groupMembersInput" type="text" placeholder="m1,t1,s1" />
-        <div class="row">
-          <button id="saveGroupBtn" type="button">Save Group</button>
-          <button id="deleteGroupBtn" type="button">Delete Group</button>
-          <button id="loadGroupsBtn" type="button">Load Groups</button>
-        </div>
-        <div id="groupCards" class="device-cards"></div>
-      </section>
+              <p id="authHint" class="muted"></p>
 
-      <section class="panel">
-        <h2>Agent Update</h2>
-        <p class="muted">Push a verified agent EXE update to one device or all online devices. Single-device updates can be queued while offline.</p>
-        <div class="danger-zone">
-          <strong>Danger Zone</strong>
-          <p>Updates restart the agent and can break connectivity if package details are wrong.</p>
-        </div>
-        <label for="updateTargetInput">Target</label>
-        <input id="updateTargetInput" type="text" value="m1" placeholder="m1 or all" />
-        <label for="updateVersionInput">Version</label>
-        <input id="updateVersionInput" type="text" placeholder="0.2.0" />
-        <label for="updateUrlInput">Package URL (HTTPS)</label>
-        <input id="updateUrlInput" type="text" placeholder="https://mpmc.ddns.net/updates/cordyceps-agent-0.2.0.exe" />
-        <label for="updateShaInput">SHA256 (optional, auto-inspected if empty)</label>
-        <input id="updateShaInput" type="text" placeholder="64-char hex (optional)" />
-        <label for="updateSizeInput">Size bytes (optional)</label>
-        <input id="updateSizeInput" type="text" placeholder="optional exact byte count" />
-        <label for="updateSignatureKeyIdInput">Signature Key ID (optional)</label>
-        <input id="updateSignatureKeyIdInput" type="text" placeholder="release-2026" />
-        <label for="updateSignatureInput">Detached Signature (base64, optional)</label>
-        <textarea id="updateSignatureInput" rows="2" placeholder="ed25519 signature over canonical update metadata"></textarea>
-        <label for="updateUsePrivilegedHelperInput" class="checkbox-line">
-          <input id="updateUsePrivilegedHelperInput" type="checkbox" />
-          Use privileged helper split (optional; may trigger UAC prompt on target)
-        </label>
-        <label for="updateQueueOfflineInput" class="checkbox-line">
-          <input id="updateQueueOfflineInput" type="checkbox" checked />
-          Queue update if target is offline (single target only)
-        </label>
-        <div class="row">
-          <button id="pushUpdateBtn" type="button" class="primary">Push Update</button>
-        </div>
-      </section>
+              <div class="inline-banner">
+                <div>
+                  <strong>Persistence</strong>
+                  <p class="muted">Changes save locally as you type so you do not have to re-enter them on refresh.</p>
+                </div>
+              </div>
 
-      <section class="panel full-span">
-        <h2>History</h2>
-        <div class="row">
-          <input id="historyDeviceFilterInput" type="text" placeholder="Filter by device ID (optional)" />
-          <button id="loadHistoryBtn" type="button">Load History</button>
-          <button id="moreHistoryBtn" type="button">Load More</button>
-        </div>
-        <p id="historySummary" class="muted">No history loaded.</p>
-        <div id="historyTimeline" class="history-list"></div>
-      </section>
+              <label for="renameDeviceInput">Shared Device Name</label>
+              <div class="row">
+                <input id="renameDeviceInput" type="text" placeholder="t1" />
+                <input id="renameDisplayNameInput" type="text" placeholder="t1-Molly" />
+                <button id="renameDeviceBtn" type="button">Save Name</button>
+              </div>
+              <p class="muted">Saved on the server so every remote sees the same label. Leave the name empty to clear it.</p>
 
-      <section class="panel">
-        <h2>API Keys</h2>
-        <p class="muted">Create scoped keys for additional users/devices. Requires admin scope.</p>
-        <label for="apiKeyNameInput">Key Name</label>
-        <input id="apiKeyNameInput" type="text" placeholder="Charlie iPhone" />
-        <label for="apiKeyScopesInput">Scopes (comma-separated)</label>
-        <input
-          id="apiKeyScopesInput"
-          type="text"
-          placeholder="devices:read,commands:execute,history:read,events:read"
-        />
-        <div class="row">
-          <button id="createApiKeyBtn" type="button">Create Key</button>
-          <button id="loadApiKeysBtn" type="button">Load Keys</button>
-        </div>
-        <label for="newApiKeyBox">Last Generated API Key (shown once)</label>
-        <textarea id="newApiKeyBox" rows="2" placeholder="No key generated yet." readonly></textarea>
-        <div id="apiKeyList" class="history-list"></div>
-      </section>
+              <label for="aliasDeviceInput">Device App Aliases</label>
+              <div class="row">
+                <input id="aliasDeviceInput" type="text" placeholder="t1" />
+                <input id="aliasKeyInput" type="text" placeholder="Alias phrase (e.g. browser work)" />
+                <input id="aliasAppInput" type="text" placeholder="Canonical app (e.g. chrome)" />
+                <button id="saveAliasBtn" type="button">Save Alias</button>
+              </div>
+              <p class="muted">Maps custom <code>open ...</code> phrases to built-in app targets for one device.</p>
+            </section>
 
-      <section class="panel">
-        <h2>Token Rotation</h2>
-        <p class="muted">Owner-only rotation with optional owner-token grace window to avoid lockouts.</p>
-        <label for="ownerGraceSecondsInput">Owner Grace Seconds (0-3600)</label>
-        <input id="ownerGraceSecondsInput" type="number" min="0" max="3600" step="1" value="600" />
-        <div class="row">
-          <button id="rotateOwnerTokenBtn" type="button">Rotate Owner Token</button>
-          <button id="rotateBothTokensBtn" type="button">Rotate Owner + Bootstrap</button>
-          <button id="rotateBootstrapTokenBtn" type="button">Rotate Bootstrap Token</button>
-        </div>
-        <label for="rotatedTokenBox">Latest Rotation Payload</label>
-        <textarea id="rotatedTokenBox" rows="4" placeholder="No token rotation yet." readonly></textarea>
-      </section>
+            <section id="groups" class="panel groups-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Groups</h3>
+                  <p class="section-intro">Saved multi-device targets for repeat operations.</p>
+                </div>
+              </div>
+              <label for="groupIdInput">Group ID</label>
+              <input id="groupIdInput" type="text" placeholder="office" />
+              <label for="groupDisplayNameInput">Group Name</label>
+              <input id="groupDisplayNameInput" type="text" placeholder="Office PCs" />
+              <label for="groupDescriptionInput">Description (optional)</label>
+              <input id="groupDescriptionInput" type="text" placeholder="Shared workspace devices" />
+              <label for="groupMembersInput">Device IDs (comma-separated)</label>
+              <input id="groupMembersInput" type="text" placeholder="m1,t1,s1" />
+              <div class="row">
+                <button id="saveGroupBtn" type="button">Save Group</button>
+                <button id="deleteGroupBtn" type="button">Delete Group</button>
+                <button id="loadGroupsBtn" type="button">Load Groups</button>
+              </div>
+              <div id="groupCards" class="device-cards">
+                <article class="empty-state">
+                  <strong>No groups loaded yet.</strong>
+                  <p class="muted">Load groups after connecting, or create one here for repeat fleet operations.</p>
+                </article>
+              </div>
+            </section>
 
-      <section class="panel full-span">
-        <h2>Result</h2>
-        <div class="result-grid">
-          <div class="result-row">
-            <span class="result-key">Status</span>
-            <span id="resultStatus" class="result-val">idle</span>
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>API Keys</h3>
+                  <p class="section-intro">Provision scoped access and rotate tokens safely.</p>
+                </div>
+              </div>
+              <label for="apiKeyNameInput">Key Name</label>
+              <input id="apiKeyNameInput" type="text" placeholder="Charlie iPhone" />
+              <label for="apiKeyScopesInput">Scopes (comma-separated)</label>
+              <input
+                id="apiKeyScopesInput"
+                type="text"
+                placeholder="devices:read,commands:execute,history:read,events:read"
+              />
+              <div class="row">
+                <button id="createApiKeyBtn" type="button">Create Key</button>
+                <button id="loadApiKeysBtn" type="button">Load Keys</button>
+              </div>
+              <label for="newApiKeyBox">Last Generated API Key (shown once)</label>
+              <textarea id="newApiKeyBox" rows="2" placeholder="No key generated yet." readonly></textarea>
+              <div id="apiKeyList" class="history-list"></div>
+
+              <label for="ownerGraceSecondsInput">Owner Grace Seconds (0-3600)</label>
+              <input id="ownerGraceSecondsInput" type="number" min="0" max="3600" step="1" value="600" />
+              <div class="row">
+                <button id="rotateOwnerTokenBtn" type="button">Rotate Owner Token</button>
+                <button id="rotateBothTokensBtn" type="button">Rotate Owner + Bootstrap</button>
+                <button id="rotateBootstrapTokenBtn" type="button">Rotate Bootstrap Token</button>
+              </div>
+              <label for="rotatedTokenBox">Latest Rotation Payload</label>
+              <textarea id="rotatedTokenBox" rows="4" placeholder="No token rotation yet." readonly></textarea>
+            </section>
           </div>
-          <div class="result-row">
-            <span class="result-key">Request ID</span>
-            <span id="resultRequestId" class="result-val">-</span>
+        </section>
+
+        <section id="operationsView" class="view-panel hidden">
+          <div class="view-header">
+            <div>
+              <p class="view-kicker">Advanced</p>
+              <h2>Operations</h2>
+              <p class="section-intro">Security controls, update rollout, and admin-only command execution.</p>
+            </div>
           </div>
-          <div class="result-row">
-            <span class="result-key">Latency</span>
-            <span id="resultLatency" class="result-val">-</span>
+
+          <div class="operations-workspace">
+            <section id="security" class="panel danger-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Security Controls</h3>
+                  <p class="section-intro">Lockdown, quarantine, and kill-switch actions.</p>
+                </div>
+              </div>
+              <div class="danger-zone">
+                <strong>Danger Zone</strong>
+                <p>These actions can isolate the target immediately. Verify device ID and reason before applying.</p>
+              </div>
+              <label for="securityDeviceInput">Security Target Device</label>
+              <input id="securityDeviceInput" type="text" placeholder="t1" />
+              <label for="securityReasonInput">Reason (optional)</label>
+              <input id="securityReasonInput" type="text" placeholder="User requested lockdown" />
+              <label for="securityLockdownMinutesInput">Lockdown Minutes (1-240)</label>
+              <input id="securityLockdownMinutesInput" type="number" min="1" max="240" step="1" value="30" />
+              <div class="row">
+                <button id="securityLockdownBtn" type="button" class="primary">Trigger Lockdown</button>
+                <button id="securityQuarantineBtn" type="button">Quarantine</button>
+              </div>
+              <div class="row">
+                <button id="securityUnquarantineBtn" type="button">Lift Quarantine</button>
+                <button id="securityKillSwitchOnBtn" type="button">Enable Kill-Switch</button>
+              </div>
+              <div class="row">
+                <button id="securityKillSwitchOffBtn" type="button">Disable Kill-Switch</button>
+              </div>
+            </section>
+
+            <section id="updates" class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Agent Update</h3>
+                  <p class="section-intro">Verified package rollout for one device or the entire online fleet.</p>
+                </div>
+              </div>
+              <div class="danger-zone">
+                <strong>Danger Zone</strong>
+                <p>Updates restart the agent and can break connectivity if package details are wrong.</p>
+              </div>
+              <label for="updateTargetInput">Target</label>
+              <input id="updateTargetInput" type="text" value="m1" placeholder="m1 or all" />
+              <label for="updateVersionInput">Version</label>
+              <input id="updateVersionInput" type="text" placeholder="0.2.0" />
+              <label for="updateUrlInput">Package URL (HTTPS)</label>
+              <input id="updateUrlInput" type="text" placeholder="https://mpmc.ddns.net/updates/cordyceps-agent-0.2.0.exe" />
+              <label for="updateShaInput">SHA256 (optional, auto-inspected if empty)</label>
+              <input id="updateShaInput" type="text" placeholder="64-char hex (optional)" />
+              <label for="updateSizeInput">Size bytes (optional)</label>
+              <input id="updateSizeInput" type="text" placeholder="optional exact byte count" />
+              <label for="updateSignatureKeyIdInput">Signature Key ID (optional)</label>
+              <input id="updateSignatureKeyIdInput" type="text" placeholder="release-2026" />
+              <label for="updateSignatureInput">Detached Signature (base64, optional)</label>
+              <textarea id="updateSignatureInput" rows="2" placeholder="ed25519 signature over canonical update metadata"></textarea>
+              <label for="updateUsePrivilegedHelperInput" class="checkbox-line">
+                <input id="updateUsePrivilegedHelperInput" type="checkbox" />
+                Use privileged helper split (optional; may trigger UAC prompt on target)
+              </label>
+              <label for="updateQueueOfflineInput" class="checkbox-line">
+                <input id="updateQueueOfflineInput" type="checkbox" checked />
+                Queue update if target is offline (single target only)
+              </label>
+              <div class="row">
+                <button id="pushUpdateBtn" type="button" class="primary">Push Update</button>
+              </div>
+            </section>
+
+            <section id="admin" class="panel danger-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Admin Command</h3>
+                  <p class="section-intro">Arbitrary shell execution on admin-capable agents only.</p>
+                </div>
+              </div>
+              <div class="danger-zone">
+                <strong>Danger Zone</strong>
+                <p>Runs arbitrary shell commands on an admin-capable agent. Requires an authenticated token with admin scope.</p>
+              </div>
+              <label for="adminTargetInput">Admin Target</label>
+              <input id="adminTargetInput" type="text" value="a1" placeholder="a1" />
+              <label for="adminShellSelect">Shell</label>
+              <select id="adminShellSelect">
+                <option value="cmd">Command Prompt (cmd)</option>
+                <option value="powershell">PowerShell</option>
+              </select>
+              <label for="adminCommandInput">Command</label>
+              <textarea id="adminCommandInput" rows="3" placeholder="whoami"></textarea>
+              <div class="row">
+                <button id="sendAdminCommandBtn" type="button" class="primary">Run Admin Command</button>
+              </div>
+              <p class="muted">Required scopes: <code>commands:execute</code> + <code>admin:manage</code>.</p>
+            </section>
           </div>
-          <div class="result-row">
-            <span class="result-key">Message</span>
-            <span id="resultMessage" class="result-val">No request yet.</span>
-          </div>
-        </div>
-        <pre id="resultBox" class="result">No request yet.</pre>
+        </section>
       </section>
     </main>
 

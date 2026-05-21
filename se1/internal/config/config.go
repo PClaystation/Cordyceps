@@ -20,7 +20,7 @@ type Config struct {
 }
 
 func DefaultConfigPath() (string, error) {
-	override := strings.TrimSpace(os.Getenv("JARVIS_AGENT_CONFIG"))
+	override := firstConfiguredEnv("CORDYCEPS_AGENT_CONFIG", "JARVIS_AGENT_CONFIG")
 	if override != "" {
 		return override, nil
 	}
@@ -40,6 +40,16 @@ func DefaultConfigPath() (string, error) {
 	}
 
 	return filepath.Join(homeDir, ".se1-agent", "config.json"), nil
+}
+
+func firstConfiguredEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func Load(path string) (*Config, error) {

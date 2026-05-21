@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/ds1/internal/protocol"
+	"github.com/charliearnerstal/cordyceps/ds1/internal/protocol"
 )
 
 func Capabilities() []string {

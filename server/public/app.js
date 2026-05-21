@@ -14,6 +14,7 @@ const deviceSummary = document.getElementById("deviceSummary");
 const deviceCards = document.getElementById("deviceCards");
 const deviceList = document.getElementById("deviceList");
 const deviceInspectPanel = document.getElementById("deviceInspectPanel");
+const mainWorkspace = document.querySelector(".main-workspace");
 const deviceInspectTitle = document.getElementById("deviceInspectTitle");
 const deviceInspectMeta = document.getElementById("deviceInspectMeta");
 const deviceInspectSections = document.getElementById("deviceInspectSections");
@@ -76,6 +77,19 @@ const loadHistoryBtn = document.getElementById("loadHistoryBtn");
 const moreHistoryBtn = document.getElementById("moreHistoryBtn");
 const historySummary = document.getElementById("historySummary");
 const historyTimeline = document.getElementById("historyTimeline");
+const metricConnectionValue = document.getElementById("metricConnectionValue");
+const metricConnectionHint = document.getElementById("metricConnectionHint");
+const metricDeviceValue = document.getElementById("metricDeviceValue");
+const metricDeviceHint = document.getElementById("metricDeviceHint");
+const metricGroupValue = document.getElementById("metricGroupValue");
+const metricGroupHint = document.getElementById("metricGroupHint");
+const metricHistoryValue = document.getElementById("metricHistoryValue");
+const metricHistoryHint = document.getElementById("metricHistoryHint");
+const sectionNavLinks = Array.from(document.querySelectorAll(".section-link"));
+const viewPanels = Array.from(document.querySelectorAll(".view-panel"));
+const currentTargetLabel = document.getElementById("currentTargetLabel");
+const currentTargetMeta = document.getElementById("currentTargetMeta");
+const focusFleetBtn = document.getElementById("focusFleetBtn");
 
 const apiKeyNameInput = document.getElementById("apiKeyNameInput");
 const apiKeyScopesInput = document.getElementById("apiKeyScopesInput");
@@ -413,6 +427,7 @@ let pollTimer = null;
 let eventSource = null;
 let eventsReconnectTimer = null;
 let eventDrivenDeviceRefreshTimer = null;
+let lastConnectionState = "disconnected";
 
 let knownDevices = [];
 let devicesById = new Map();
@@ -428,6 +443,56 @@ class ApiError extends Error {
     super(message);
     this.name = "ApiError";
     this.status = status;
+  }
+}
+
+function persistedGet(key) {
+  try {
+    const localValue = window.localStorage.getItem(key);
+    if (localValue != null && localValue !== "") {
+      return localValue;
+    }
+  } catch {
+    // Ignore storage access issues.
+  }
+
+  try {
+    const sessionValue = window.sessionStorage.getItem(key);
+    if (sessionValue != null && sessionValue !== "") {
+      return sessionValue;
+    }
+  } catch {
+    // Ignore storage access issues.
+  }
+
+  return "";
+}
+
+function persistedSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage access issues.
+  }
+
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Ignore storage access issues.
+  }
+}
+
+function persistedRemove(key) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore storage access issues.
+  }
+
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // Ignore storage access issues.
   }
 }
 
@@ -484,20 +549,20 @@ function defaultApiBase() {
 }
 
 function getApiBase() {
-  const stored = localStorage.getItem(API_BASE_KEY);
+  const stored = persistedGet(API_BASE_KEY);
   let resolved;
 
   if (stored) {
     resolved = coerceApiBaseForContext(stored);
     if (resolved && resolved !== stored) {
-      localStorage.setItem(API_BASE_KEY, resolved);
+      persistedSet(API_BASE_KEY, resolved);
     }
     return resolved;
   }
 
   resolved = coerceApiBaseForContext(defaultApiBase());
   if (resolved) {
-    localStorage.setItem(API_BASE_KEY, resolved);
+    persistedSet(API_BASE_KEY, resolved);
   }
   return resolved;
 }
@@ -505,11 +570,11 @@ function getApiBase() {
 function setApiBase(value) {
   const normalized = coerceApiBaseForContext(value);
   if (!normalized) {
-    localStorage.removeItem(API_BASE_KEY);
+    persistedRemove(API_BASE_KEY);
     return;
   }
 
-  localStorage.setItem(API_BASE_KEY, normalized);
+  persistedSet(API_BASE_KEY, normalized);
 }
 
 function apiUrl(path) {
@@ -522,15 +587,15 @@ function apiUrl(path) {
 }
 
 function getToken() {
-  return localStorage.getItem(TOKEN_KEY) || "";
+  return persistedGet(TOKEN_KEY);
 }
 
 function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+  persistedSet(TOKEN_KEY, token);
 }
 
 function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
+  persistedRemove(TOKEN_KEY);
 }
 
 function normalizeActionText(text) {
@@ -609,22 +674,26 @@ function loadLastCommandSuccess() {
 }
 
 function setConnectionStatus(status) {
+  lastConnectionState = status;
   connectionBadge.classList.remove("connected", "disconnected", "retrying");
 
   if (status === "connected") {
     connectionBadge.textContent = "Connected";
     connectionBadge.classList.add("connected");
+    updateDashboardMetrics();
     return;
   }
 
   if (status === "retrying") {
     connectionBadge.textContent = "Retrying";
     connectionBadge.classList.add("retrying");
+    updateDashboardMetrics();
     return;
   }
 
   connectionBadge.textContent = "Disconnected";
   connectionBadge.classList.add("disconnected");
+  updateDashboardMetrics();
 }
 
 function setAuthHint(text, isError = false) {
@@ -666,6 +735,108 @@ function setResult(payload, context = {}) {
   resultLatency.textContent = latencyLabel;
   resultMessage.textContent = message;
   resultBox.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+  updateDashboardMetrics();
+}
+
+function updateDashboardMetrics() {
+  if (metricConnectionValue && metricConnectionHint) {
+    if (!getToken()) {
+      metricConnectionValue.textContent = "No Token";
+      metricConnectionHint.textContent = "Save an API token to enable live commands.";
+    } else if (lastConnectionState === "connected") {
+      metricConnectionValue.textContent = "Live";
+      metricConnectionHint.textContent = "Authenticated and able to reach the server.";
+    } else if (lastConnectionState === "retrying") {
+      metricConnectionValue.textContent = "Retrying";
+      metricConnectionHint.textContent = "Network or server issue detected. Requests will retry.";
+    } else {
+      metricConnectionValue.textContent = "Offline";
+      metricConnectionHint.textContent = "Token saved, but the session is not connected.";
+    }
+  }
+
+  if (metricDeviceValue && metricDeviceHint) {
+    const onlineDevices = knownDevices.filter((device) => (device.status || "").toLowerCase() === "online").length;
+    metricDeviceValue.textContent = String(knownDevices.length);
+    metricDeviceHint.textContent =
+      knownDevices.length > 0 ? `${onlineDevices} online and addressable now.` : "Load devices to see fleet state.";
+  }
+
+  if (metricGroupValue && metricGroupHint) {
+    const onlineAcrossGroups = knownGroups.reduce((sum, group) => sum + Number(group?.online_count || 0), 0);
+    metricGroupValue.textContent = String(knownGroups.length);
+    metricGroupHint.textContent =
+      knownGroups.length > 0 ? `${onlineAcrossGroups} online memberships across saved groups.` : "No target groups loaded.";
+  }
+
+  if (metricHistoryValue && metricHistoryHint) {
+    metricHistoryValue.textContent = String(commandHistoryEntries.length);
+    if (commandHistoryEntries.length === 0) {
+      metricHistoryHint.textContent = "Load command history to review outcomes.";
+    } else {
+      const latest = commandHistoryEntries[0];
+      const latestStatus = String(latest?.status || "unknown").toUpperCase();
+      metricHistoryHint.textContent = `Latest event: ${latestStatus} on ${latest?.device_id || "unknown target"}.`;
+    }
+  }
+}
+
+function setActiveSectionLink(sectionId) {
+  for (const link of sectionNavLinks) {
+    const viewId = link.dataset.view || (link.getAttribute("href") || "").replace(/^#/, "");
+    link.classList.toggle("is-active", viewId === sectionId);
+  }
+}
+
+function setActiveView(viewId) {
+  const targetId = viewId || "fleetView";
+
+  for (const panel of viewPanels) {
+    panel.classList.toggle("hidden", panel.id !== targetId);
+    panel.classList.toggle("is-active", panel.id === targetId);
+  }
+
+  setActiveSectionLink(targetId);
+}
+
+function revealHashSection(hashValue) {
+  const cleaned = String(hashValue || "").replace(/^#/, "");
+  if (!cleaned) {
+    return;
+  }
+
+  const matchingView = viewPanels.find((panel) => panel.id === cleaned);
+  if (matchingView) {
+    setActiveView(cleaned);
+  }
+}
+
+function setupSectionNav() {
+  if (sectionNavLinks.length === 0) {
+    return;
+  }
+
+  for (const link of sectionNavLinks) {
+    link.addEventListener("click", (event) => {
+      const href = link.getAttribute("href") || "";
+      const viewId = link.dataset.view || href.replace(/^#/, "");
+      if (!viewId) {
+        return;
+      }
+
+      event.preventDefault();
+      setActiveView(viewId);
+      if (window.location.hash !== `#${viewId}`) {
+        window.history.replaceState(null, "", `#${viewId}`);
+      }
+    });
+  }
+
+  revealHashSection(window.location.hash);
+  const defaultViewId = sectionNavLinks[0]?.dataset.view || "fleetView";
+  if (!viewPanels.some((panel) => panel.id === window.location.hash.replace(/^#/, ""))) {
+    setActiveView(defaultViewId);
+  }
 }
 
 function parseApiErrorMessage(status, dataMessage) {
@@ -918,7 +1089,7 @@ function composeCommand() {
   }
 
   if (action === "clipboard" || action === "copy") {
-    return arg ? `${target} ${action} ${arg}` : `${target} ${action} copied from jarvis`;
+    return arg ? `${target} ${action} ${arg}` : `${target} ${action} copied from Cordyceps`;
   }
 
   if (action === "type") {
@@ -994,6 +1165,40 @@ function updateDangerZone() {
   dangerZone.classList.toggle("hidden", !DANGEROUS_ACTIONS.has(action) && !bulkGuarded);
 }
 
+function updateCurrentTargetUI() {
+  const normalizedTarget = normalizeActionText(targetInput.value);
+  const targetLabel = normalizedTarget || "No target";
+  if (currentTargetLabel) {
+    currentTargetLabel.textContent = targetLabel;
+  }
+
+  if (currentTargetMeta) {
+    const groupId = parseGroupTarget(normalizedTarget);
+    if (groupId) {
+      const group = groupsById.get(groupId);
+      currentTargetMeta.textContent = group
+        ? `${group.display_name || group.group_id} • ${group.online_count || 0} online`
+        : "Group target selected.";
+    } else {
+      const device = devicesById.get(normalizedTarget);
+      if (device) {
+        const status = String(device.status || "unknown").toLowerCase();
+        const displayName = String(device.display_name || device.device_id || normalizedTarget).trim();
+        currentTargetMeta.textContent = `${displayName} • ${status}`;
+      } else if (normalizedTarget === "all") {
+        currentTargetMeta.textContent = "All devices target. Only guarded actions should use this.";
+      } else {
+        currentTargetMeta.textContent = "Pick a device tile to retarget instantly.";
+      }
+    }
+  }
+
+  const selectedDeviceId = parseGroupTarget(normalizedTarget) ? "" : normalizeDeviceId(normalizedTarget);
+  for (const card of deviceCards.querySelectorAll(".device-card")) {
+    card.classList.toggle("is-selected", card.dataset.deviceId === selectedDeviceId);
+  }
+}
+
 function setTarget(deviceId) {
   targetInput.value = deviceId;
   localStorage.setItem(TARGET_KEY, deviceId);
@@ -1014,6 +1219,7 @@ function setTarget(deviceId) {
     localStorage.setItem(SECURITY_DEVICE_KEY, deviceId);
   }
   refreshActionAvailability();
+  updateCurrentTargetUI();
 }
 
 function renderCapabilityChips(capabilities) {
@@ -1200,6 +1406,7 @@ function hideDeviceInspectView() {
   inspectedDeviceId = "";
   clearDeviceInspectView();
   deviceInspectPanel?.classList.add("hidden");
+  mainWorkspace?.classList.remove("inspecting");
 }
 
 function renderDeviceInspectView(payload) {
@@ -1453,6 +1660,7 @@ function renderDeviceInspectView(payload) {
   }
 
   deviceInspectPanel?.classList.remove("hidden");
+  mainWorkspace?.classList.add("inspecting");
 }
 
 async function inspectDevice(deviceId, options = {}) {
@@ -1503,7 +1711,13 @@ function renderDeviceCards(devices) {
 
   if (knownDevices.length === 0) {
     deviceSummary.textContent = "No enrolled devices";
+    const empty = document.createElement("article");
+    empty.className = "empty-state";
+    empty.innerHTML =
+      "<strong>No fleet data loaded yet.</strong><p class=\"muted\">Save your token, then load devices to populate online state, capability chips, and inspector actions.</p>";
+    deviceCards.appendChild(empty);
     refreshActionAvailability();
+    updateDashboardMetrics();
     return;
   }
 
@@ -1515,40 +1729,74 @@ function renderDeviceCards(devices) {
     const displayName = String(device.display_name || "").trim();
     const status = String(device.status || "unknown").trim().toLowerCase();
     const version = String(device.version || "").trim();
+    const profile = String(device.profile || "n/a").trim().toUpperCase();
+    const hostname = String(device.hostname || "n/a").trim();
+    const username = String(device.username || "n/a").trim();
     const heartbeatProcess = getHeartbeatProcessRecord(device);
     const heartbeatStatus = String(heartbeatProcess?.status || "offline").trim().toLowerCase();
     const droneFleet = getDroneFleetStatus(device);
+    const securityState = device.quarantine_enabled
+      ? "Quarantined"
+      : device.kill_switch_enabled
+        ? "Kill-switch on"
+        : "Normal";
 
     const card = document.createElement("article");
     card.className = "device-card";
+    card.dataset.deviceId = normalizeActionText(deviceId);
+    card.tabIndex = 0;
+
+    const header = document.createElement("div");
+    header.className = "device-card-header";
+
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "device-card-title";
+
     const heading = document.createElement("h3");
     heading.textContent = displayName || deviceId || "unknown-device";
+    titleWrap.appendChild(heading);
 
-    const meta = document.createElement("div");
-    meta.className = "meta";
+    const identity = document.createElement("span");
+    identity.className = "device-identity";
+    identity.textContent = `${deviceId || "unknown-device"} • ${profile}`;
+    titleWrap.appendChild(identity);
 
     const statusPill = document.createElement("span");
     statusPill.className = `device-status ${status === "online" ? "online" : "offline"}`;
     statusPill.textContent = status;
 
-    const seen = document.createElement("span");
-    seen.textContent = device.last_seen ? toLocalTimestamp(device.last_seen) : "no heartbeat";
+    header.appendChild(titleWrap);
+    header.appendChild(statusPill);
+    card.appendChild(header);
 
-    meta.appendChild(statusPill);
-    meta.appendChild(seen);
-    card.appendChild(heading);
+    const metaGrid = document.createElement("div");
+    metaGrid.className = "device-meta-grid";
 
-    if (displayName && displayName.toLowerCase() !== deviceId.toLowerCase()) {
-      const identity = document.createElement("p");
-      identity.className = "muted";
-      identity.textContent = deviceId;
-      card.appendChild(identity);
+    const metaItems = [
+      { key: "Last seen", value: device.last_seen ? toLocalTimestamp(device.last_seen) : "no heartbeat" },
+      { key: "Agent", value: version ? `v${version}` : "version unknown" },
+      { key: "Host", value: hostname },
+      { key: "User", value: username },
+      { key: "Heartbeat", value: heartbeatProcess?.last_seen ? toLocalTimestamp(heartbeatProcess.last_seen) : heartbeatStatus },
+      { key: "Security", value: securityState },
+    ];
+
+    for (const item of metaItems) {
+      const meta = document.createElement("div");
+      meta.className = "device-meta";
+
+      const key = document.createElement("strong");
+      key.textContent = item.key;
+
+      const value = document.createElement("span");
+      value.textContent = item.value;
+
+      meta.appendChild(key);
+      meta.appendChild(value);
+      metaGrid.appendChild(meta);
     }
 
-    const versionText = document.createElement("p");
-    versionText.className = "muted";
-    versionText.textContent = `Agent version: ${version || "unknown"}`;
-    card.appendChild(versionText);
+    card.appendChild(metaGrid);
 
     const heartbeatMeta = document.createElement("div");
     heartbeatMeta.className = "device-subentity";
@@ -1622,12 +1870,11 @@ function renderDeviceCards(devices) {
       card.appendChild(droneMeta);
     }
 
-    card.appendChild(meta);
     card.appendChild(renderCapabilityChips(device.capabilities));
 
     const useButton = document.createElement("button");
     useButton.type = "button";
-    useButton.textContent = "Use Device";
+    useButton.textContent = "Target";
     useButton.addEventListener("click", () => {
       if (!deviceId) {
         return;
@@ -1654,7 +1901,7 @@ function renderDeviceCards(devices) {
 
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
-    deleteButton.textContent = "Delete Record";
+    deleteButton.textContent = "Delete";
     if (status === "online" || heartbeatStatus === "online" || droneFleet.activeCount > 0) {
       deleteButton.disabled = true;
       deleteButton.title = "The agent, heartbeat process, or a drone process is online. Disconnect them before deleting the saved record.";
@@ -1693,11 +1940,38 @@ function renderDeviceCards(devices) {
     });
 
     const actions = document.createElement("div");
-    actions.className = "actions";
+    actions.className = "device-actions";
     actions.appendChild(useButton);
     actions.appendChild(inspectButton);
     actions.appendChild(deleteButton);
     card.appendChild(actions);
+
+    card.addEventListener("click", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("button, input, select, textarea, a")) {
+        return;
+      }
+      if (!deviceId) {
+        return;
+      }
+      setTarget(deviceId.toLowerCase());
+    });
+
+    card.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("button, input, select, textarea, a") && target !== card) {
+        return;
+      }
+      event.preventDefault();
+      if (!deviceId) {
+        return;
+      }
+      setTarget(deviceId.toLowerCase());
+    });
+
     deviceCards.appendChild(card);
 
     const li = document.createElement("li");
@@ -1706,6 +1980,8 @@ function renderDeviceCards(devices) {
   }
 
   refreshActionAvailability();
+  updateCurrentTargetUI();
+  updateDashboardMetrics();
 }
 
 function renderGroupCards(groups) {
@@ -1724,6 +2000,7 @@ function renderGroupCards(groups) {
     empty.textContent = "No groups yet.";
     groupCards.appendChild(empty);
     refreshActionAvailability();
+    updateDashboardMetrics();
     return;
   }
 
@@ -1778,6 +2055,8 @@ function renderGroupCards(groups) {
   }
 
   refreshActionAvailability();
+  updateCurrentTargetUI();
+  updateDashboardMetrics();
 }
 
 function renderHistoryEntries() {
@@ -1789,6 +2068,7 @@ function renderHistoryEntries() {
 
   if (!Array.isArray(commandHistoryEntries) || commandHistoryEntries.length === 0) {
     historySummary.textContent = "No history loaded.";
+    updateDashboardMetrics();
     return;
   }
 
@@ -1824,6 +2104,8 @@ function renderHistoryEntries() {
     article.appendChild(message);
     historyTimeline.appendChild(article);
   }
+
+  updateDashboardMetrics();
 }
 
 function upsertHistoryEntry(entry) {
@@ -1859,6 +2141,7 @@ function renderApiKeys(keys) {
     empty.className = "muted";
     empty.textContent = "No API keys available.";
     apiKeyList.appendChild(empty);
+    updateDashboardMetrics();
     return;
   }
 
@@ -1889,7 +2172,7 @@ function renderApiKeys(keys) {
 
     article.appendChild(top);
     article.appendChild(meta);
-    article.appendChild(footer);
+      article.appendChild(footer);
 
     if (key.status === "active") {
       const rotate = document.createElement("button");
@@ -1926,6 +2209,8 @@ function renderApiKeys(keys) {
 
     apiKeyList.appendChild(article);
   }
+
+  updateDashboardMetrics();
 }
 
 function extractGroupCommandText(rawText, target) {
@@ -2919,7 +3204,10 @@ function init() {
     ownerGraceSecondsInput.value = localStorage.getItem(OWNER_TOKEN_GRACE_SECONDS_KEY) || "600";
   }
 
+  setupSectionNav();
   renderActionOptions("");
+  updateCurrentTargetUI();
+  updateDashboardMetrics();
 
   const bootstrapAction = localStorage.getItem(BOOTSTRAP_ACTION_KEY);
   const rememberedAction = localStorage.getItem(LAST_ACTION_KEY);
@@ -2940,6 +3228,24 @@ function init() {
 
   localStorage.removeItem(BOOTSTRAP_ACTION_KEY);
   localStorage.removeItem(BOOTSTRAP_ARG_KEY);
+
+  apiBaseInput.addEventListener("input", () => {
+    const rawValue = (apiBaseInput.value || "").trim();
+    if (!rawValue) {
+      persistedRemove(API_BASE_KEY);
+      return;
+    }
+    persistedSet(API_BASE_KEY, rawValue);
+  });
+
+  tokenInput.addEventListener("input", () => {
+    const rawValue = (tokenInput.value || "").trim();
+    if (!rawValue) {
+      persistedRemove(TOKEN_KEY);
+      return;
+    }
+    persistedSet(TOKEN_KEY, rawValue);
+  });
 
   actionSearchInput.addEventListener("input", () => {
     renderActionOptions(actionSearchInput.value);
@@ -2980,6 +3286,7 @@ function init() {
     }
     refreshActionAvailability();
     commandText.value = composeCommand();
+    updateCurrentTargetUI();
   });
 
   argInput.addEventListener("input", () => {
@@ -3429,6 +3736,13 @@ function init() {
     });
   }
 
+  if (focusFleetBtn) {
+    focusFleetBtn.addEventListener("click", () => {
+      setActiveView("mainView");
+      document.querySelector(".fleet-main-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   setupSpeech();
   schedulePolling();
   connectEventStream();
@@ -3459,6 +3773,10 @@ function init() {
     });
   }
 }
+
+window.addEventListener("hashchange", () => {
+  revealHashSection(window.location.hash);
+});
 
 window.addEventListener("beforeunload", () => {
   closeEventStream();

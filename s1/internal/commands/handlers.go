@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/s1/internal/protocol"
+	"github.com/charliearnerstal/cordyceps/s1/internal/protocol"
 )
 
 const commandTimeout = 8 * time.Second
@@ -429,7 +429,7 @@ func notify(text string) error {
 	}
 
 	escaped := strings.ReplaceAll(text, "'", "''")
-	script := fmt.Sprintf("$w = New-Object -ComObject WScript.Shell; $null = $w.Popup('%s', 3, 'Jarvis', 64)", escaped)
+	script := fmt.Sprintf("$w = New-Object -ComObject WScript.Shell; $null = $w.Popup('%s', 3, 'Cordyceps', 64)", escaped)
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script)
 
 	if err := runWithTimeout(cmd, commandTimeout); err != nil {

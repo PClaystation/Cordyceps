@@ -3,12 +3,17 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
+	"github.com/charliearnerstal/cordyceps/d1/internal/resilience"
 )
 
 func TestStageManagedCompanionsIfPresentSeedsManagedTargets(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("managed companion staging is Windows-specific")
+	}
+
 	tempDir := t.TempDir()
 	sourceDir := filepath.Join(tempDir, "source")
 	distDir := filepath.Join(sourceDir, "dist")
@@ -53,6 +58,10 @@ func TestStageManagedCompanionsIfPresentSeedsManagedTargets(t *testing.T) {
 }
 
 func TestStageManagedCompanionsIfPresentUsesBundledAssets(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("managed companion staging is Windows-specific")
+	}
+
 	tempDir := t.TempDir()
 	agentPath := filepath.Join(tempDir, "source", "d1.exe")
 	paths := resilience.Paths{

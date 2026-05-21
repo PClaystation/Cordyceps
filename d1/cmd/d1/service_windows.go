@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
+	"github.com/charliearnerstal/cordyceps/d1/internal/resilience"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 	"golang.org/x/sys/windows/svc/eventlog"

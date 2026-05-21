@@ -117,7 +117,7 @@ Examples:
 - `m2 volume up`
 - `m2 volume down 4`
 - `m3 lock`
-- `m1 clipboard copied from jarvis`
+- `m1 clipboard copied from Cordyceps`
 - `t1 type hello from remote`
 - `m1 display off`
 - `m1 sign out`
@@ -423,13 +423,13 @@ Default config path on Windows:
 Optional installer script:
 
 ```powershell
-.\install-jarvis-agent.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN" -DeviceId "m1"
+.\install-cordyceps-agent.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN" -DeviceId "m1"
 ```
 
 Management:
 
-- `.\manage-jarvis-agent.ps1 -Action status`
-- `.\manage-jarvis-agent.ps1 -Action uninstall`
+- `.\manage-cordyceps-agent.ps1 -Action status`
+- `.\manage-cordyceps-agent.ps1 -Action uninstall`
 
 ## iPhone Shortcut
 

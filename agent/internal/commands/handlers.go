@@ -589,7 +589,7 @@ func displayOff() error {
 		return errors.New("SYSTEM_DISPLAY_OFF is supported only on Windows")
 	}
 
-	script := "$signature = '[DllImport(\"user32.dll\")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);'; Add-Type -MemberDefinition $signature -Name NativeMethods -Namespace Jarvis | Out-Null; [void][Jarvis.NativeMethods]::SendMessage([IntPtr]0xffff, 0x0112, [IntPtr]0xF170, [IntPtr]2)"
+	script := "$signature = '[DllImport(\"user32.dll\")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);'; Add-Type -MemberDefinition $signature -Name NativeMethods -Namespace Cordyceps | Out-Null; [void][Cordyceps.NativeMethods]::SendMessage([IntPtr]0xffff, 0x0112, [IntPtr]0xF170, [IntPtr]2)"
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script)
 
 	if err := runWithTimeout(cmd, commandTimeout); err != nil {

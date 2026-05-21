@@ -1,7 +1,9 @@
 package updater
 
 import (
+	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -150,5 +152,79 @@ func TestParseRequestRejectsMissingHost(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "url must include a host") {
 		t.Fatalf("expected missing host error, got %v", err)
+	}
+}
+
+func TestValidatePEHeader(t *testing.T) {
+
+	header := make([]byte, 64)
+	header[0] = 'M'
+	header[1] = 'Z'
+	header[0x3c] = 0x40
+	header = append(header, 'P', 'E', 0x00, 0x00)
+
+	if err := validatePEHeader(header); err != nil {
+		t.Fatalf("validatePEHeader returned error: %v", err)
+	}
+}
+
+func TestValidatePEHeaderRejectsInvalidSignature(t *testing.T) {
+
+	header := make([]byte, 64)
+	header[0] = 'M'
+	header[1] = 'Z'
+	header[0x3c] = 0x40
+	header = append(header, 'N', 'E', 0x00, 0x00)
+
+	if err := validatePEHeader(header); err == nil {
+		t.Fatal("expected invalid PE signature error")
+	}
+}
+
+func TestHelperArgs(t *testing.T) {
+
+	request := StagedApplyRequest{
+		ParentPID:        77,
+		HelperPath:       `C:\Temp\helper.exe`,
+		TargetPath:       `C:\Program Files\T1Agent\t1-agent.exe`,
+		StagedPath:       `C:\Temp\stage.exe`,
+		ConfigPath:       `C:\Users\Charlie\AppData\Roaming\T1Agent\config.json`,
+		LaunchConfigPath: `C:\Users\Charlie\AppData\Roaming\SE1Agent\config.json`,
+		Version:          "1.2.3",
+	}
+
+	want := []string{
+		"--apply-update",
+		"--update-parent-pid", "77",
+		"--update-helper-path", `C:\Temp\helper.exe`,
+		"--update-target", `C:\Program Files\T1Agent\t1-agent.exe`,
+		"--update-staged", `C:\Temp\stage.exe`,
+		"--update-config", `C:\Users\Charlie\AppData\Roaming\T1Agent\config.json`,
+		"--update-launch-config", `C:\Users\Charlie\AppData\Roaming\SE1Agent\config.json`,
+		"--update-version", "1.2.3",
+	}
+
+	got := helperArgs(request)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("helperArgs()=%v, want %v", got, want)
+	}
+}
+
+func TestWindowsCommandLineQuotesArgs(t *testing.T) {
+
+	args := []string{
+		"--config",
+		`C:\Program Files\T1 Agent\config.json`,
+		`--cleanup-path`,
+		`C:\Temp\helper "copy".exe`,
+	}
+
+	got := windowsCommandLine(args)
+	want := fmt.Sprintf(`--config %s --cleanup-path %s`,
+		quoteWindowsArg(`C:\Program Files\T1 Agent\config.json`),
+		quoteWindowsArg(`C:\Temp\helper "copy".exe`),
+	)
+	if got != want {
+		t.Fatalf("windowsCommandLine()=%q, want %q", got, want)
 	}
 }

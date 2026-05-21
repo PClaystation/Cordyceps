@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/config"
+	"github.com/charliearnerstal/cordyceps/d1/internal/config"
 )
 
 const (

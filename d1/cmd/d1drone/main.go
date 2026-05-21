@@ -6,7 +6,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/drone"
+	"github.com/charliearnerstal/cordyceps/d1/internal/drone"
 )
 
 var droneVersion = "0.1.0"

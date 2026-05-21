@@ -34,6 +34,16 @@ type Result struct {
 	RestartRequired bool
 }
 
+type StagedApplyRequest struct {
+	ParentPID        int
+	HelperPath       string
+	TargetPath       string
+	StagedPath       string
+	ConfigPath       string
+	LaunchConfigPath string
+	Version          string
+}
+
 type updateRequest struct {
 	Version             string
 	URL                 string
@@ -94,6 +104,11 @@ func Apply(args map[string]any, executablePath string, cfgPath string) (Result, 
 		return Result{}, err
 	}
 
+	if err := preflightStagedExecutable(stagePath); err != nil {
+		_ = os.Remove(stagePath)
+		return Result{}, err
+	}
+
 	launchConfigPath := cfgPath
 	if strings.TrimSpace(request.NextDeviceID) != "" {
 		launchConfigPath, err = prepareMigratedConfig(cfgPath, request.NextDeviceID, request.Version)
@@ -103,15 +118,25 @@ func Apply(args map[string]any, executablePath string, cfgPath string) (Result, 
 		}
 	}
 
-	scriptPath, err := writeUpdaterScript(executablePath, stagePath, cfgPath, launchConfigPath, request.Version)
+	helperPath, err := prepareUpdaterHelper(executablePath)
 	if err != nil {
 		_ = os.Remove(stagePath)
-		return Result{}, fmt.Errorf("create updater helper: %w", err)
+		return Result{}, fmt.Errorf("prepare updater helper: %w", err)
 	}
 
-	if err := launchUpdaterScript(scriptPath, request.UsePrivilegedHelper); err != nil {
+	applyRequest := StagedApplyRequest{
+		ParentPID:        os.Getpid(),
+		HelperPath:       helperPath,
+		TargetPath:       executablePath,
+		StagedPath:       stagePath,
+		ConfigPath:       cfgPath,
+		LaunchConfigPath: launchConfigPath,
+		Version:          request.Version,
+	}
+
+	if err := launchUpdaterHelper(helperPath, helperArgs(applyRequest), request.UsePrivilegedHelper); err != nil {
 		_ = os.Remove(stagePath)
-		_ = os.Remove(scriptPath)
+		_ = os.Remove(helperPath)
 		return Result{}, fmt.Errorf("launch updater helper: %w", err)
 	}
 
@@ -306,70 +331,17 @@ func verifyWindowsExecutable(path string) error {
 	}
 	defer file.Close()
 
-	header := make([]byte, 2)
-	if _, err := io.ReadFull(file, header); err != nil {
+	header := make([]byte, 64)
+	n, err := io.ReadFull(file, header)
+	if err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+			return errors.New("staged package is not a valid Windows PE executable")
+		}
 		return fmt.Errorf("read executable header: %w", err)
 	}
+	header = header[:n]
 
-	if header[0] != 'M' || header[1] != 'Z' {
-		return errors.New("staged package is not a Windows executable (missing MZ header)")
-	}
-
-	return nil
-}
-
-func writeUpdaterScript(targetPath string, stagedPath string, cfgPath string, launchConfigPath string, version string) (string, error) {
-	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("t1-agent-updater-%d.cmd", time.Now().UTC().UnixNano()))
-
-	escape := func(value string) string {
-		sanitized := strings.ReplaceAll(value, "%", "%%")
-		sanitized = strings.ReplaceAll(sanitized, "\r", "")
-		sanitized = strings.ReplaceAll(sanitized, "\n", "")
-		return sanitized
-	}
-
-	body := strings.Join([]string{
-		"@echo off",
-		"setlocal enableextensions",
-		fmt.Sprintf("set \"TARGET=%s\"", escape(targetPath)),
-		fmt.Sprintf("set \"TARGET_DIR=%s\"", escape(filepath.Dir(targetPath))),
-		fmt.Sprintf("set \"STAGED=%s\"", escape(stagedPath)),
-		fmt.Sprintf("set \"CONFIG=%s\"", escape(cfgPath)),
-		fmt.Sprintf("set \"LAUNCH_CONFIG=%s\"", escape(launchConfigPath)),
-		fmt.Sprintf("set \"VERSION=%s\"", escape(version)),
-		"set \"BACKUP=%TARGET%.bak\"",
-		"if exist \"%BACKUP%\" del /f /q \"%BACKUP%\" >nul 2>&1",
-		"for /L %%I in (1,1,45) do (",
-		"  move /Y \"%TARGET%\" \"%BACKUP%\" >nul 2>&1",
-		"  if not errorlevel 1 goto swapped",
-		"  timeout /t 1 /nobreak >nul",
-		")",
-		"start \"\" /D \"%TARGET_DIR%\" /B \"%TARGET%\" --config \"%CONFIG%\"",
-		"del /f /q \"%STAGED%\" >nul 2>&1",
-		"del /f /q \"%~f0\" >nul 2>&1",
-		"exit /b 1",
-		":swapped",
-		"move /Y \"%STAGED%\" \"%TARGET%\" >nul 2>&1",
-		"if errorlevel 1 goto rollback",
-		"start \"\" /D \"%TARGET_DIR%\" /B \"%TARGET%\" --config \"%LAUNCH_CONFIG%\" --version \"%VERSION%\"",
-		"if errorlevel 1 goto rollback",
-		"del /f /q \"%BACKUP%\" >nul 2>&1",
-		"del /f /q \"%~f0\" >nul 2>&1",
-		"exit /b 0",
-		":rollback",
-		"move /Y \"%BACKUP%\" \"%TARGET%\" >nul 2>&1",
-		"start \"\" /D \"%TARGET_DIR%\" /B \"%TARGET%\" --config \"%CONFIG%\"",
-		"del /f /q \"%STAGED%\" >nul 2>&1",
-		"del /f /q \"%~f0\" >nul 2>&1",
-		"exit /b 1",
-		"",
-	}, "\r\n")
-
-	if err := os.WriteFile(scriptPath, []byte(body), 0o600); err != nil {
-		return "", err
-	}
-
-	return scriptPath, nil
+	return validatePEHeader(header)
 }
 
 func prepareMigratedConfig(currentConfigPath string, nextDeviceID string, version string) (string, error) {
@@ -477,40 +449,6 @@ func deviceConfigClass(value string) string {
 	}
 }
 
-func launchUpdaterScript(scriptPath string, usePrivilegedHelper bool) error {
-	if usePrivilegedHelper {
-		powershellScript := fmt.Sprintf(
-			"Start-Process -FilePath 'cmd.exe' -ArgumentList '/C \"\"%s\"\"' -Verb RunAs -WindowStyle Hidden",
-			strings.ReplaceAll(scriptPath, "'", "''"),
-		)
-
-		cmd := exec.Command(
-			"powershell",
-			"-NoProfile",
-			"-NonInteractive",
-			"-ExecutionPolicy",
-			"Bypass",
-			"-Command",
-			powershellScript,
-		)
-		configureHiddenProcess(cmd)
-		if err := cmd.Start(); err != nil {
-			return err
-		}
-		_ = cmd.Process.Release()
-		return nil
-	}
-
-	cmd := exec.Command("cmd", "/C", scriptPath)
-	configureHiddenProcess(cmd)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	_ = cmd.Process.Release()
-
-	return nil
-}
-
 func fileSHA256(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -524,6 +462,103 @@ func fileSHA256(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func validatePEHeader(header []byte) error {
+	if len(header) < 64 {
+		return errors.New("staged package is not a valid Windows PE executable")
+	}
+	if header[0] != 'M' || header[1] != 'Z' {
+		return errors.New("staged package is not a Windows executable (missing MZ header)")
+	}
+
+	peOffset := uint32(header[0x3c]) | uint32(header[0x3d])<<8 | uint32(header[0x3e])<<16 | uint32(header[0x3f])<<24
+	if peOffset < 0x40 || peOffset+4 > uint32(len(header)) {
+		return errors.New("staged package is not a valid Windows PE executable")
+	}
+	if header[peOffset] != 'P' || header[peOffset+1] != 'E' || header[peOffset+2] != 0 || header[peOffset+3] != 0 {
+		return errors.New("staged package is not a valid Windows PE executable")
+	}
+
+	return nil
+}
+
+func helperArgs(request StagedApplyRequest) []string {
+	return []string{
+		"--apply-update",
+		"--update-parent-pid", fmt.Sprintf("%d", request.ParentPID),
+		"--update-helper-path", request.HelperPath,
+		"--update-target", request.TargetPath,
+		"--update-staged", request.StagedPath,
+		"--update-config", request.ConfigPath,
+		"--update-launch-config", request.LaunchConfigPath,
+		"--update-version", request.Version,
+	}
+}
+
+func windowsCommandLine(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, quoteWindowsArg(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func quoteWindowsArg(value string) string {
+	if value == "" {
+		return `""`
+	}
+	if !strings.ContainsAny(value, " \t\"") {
+		return value
+	}
+
+	var builder strings.Builder
+	builder.WriteByte('"')
+	backslashes := 0
+
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		switch ch {
+		case '\\':
+			backslashes++
+		case '"':
+			builder.WriteString(strings.Repeat("\\", backslashes*2+1))
+			builder.WriteByte('"')
+			backslashes = 0
+		default:
+			if backslashes > 0 {
+				builder.WriteString(strings.Repeat("\\", backslashes))
+				backslashes = 0
+			}
+			builder.WriteByte(ch)
+		}
+	}
+
+	if backslashes > 0 {
+		builder.WriteString(strings.Repeat("\\", backslashes*2))
+	}
+
+	builder.WriteByte('"')
+	return builder.String()
+}
+
+func preflightStagedExecutable(stagePath string) error {
+	if strings.TrimSpace(stagePath) == "" {
+		return errors.New("missing staged package path")
+	}
+
+	cmd := exec.Command(stagePath, "--print-version")
+	configureHiddenProcess(cmd)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("staged package failed startup self-check: %w", err)
+	}
+
+	if strings.TrimSpace(string(output)) == "" {
+		return errors.New("staged package failed startup self-check: empty version output")
+	}
+
+	return nil
 }
 
 func readStringArg(args map[string]any, key string) (string, error) {

@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/background"
-	"github.com/charliearnerstal/jarvis/d1/internal/config"
-	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
+	"github.com/charliearnerstal/cordyceps/d1/internal/background"
+	"github.com/charliearnerstal/cordyceps/d1/internal/config"
+	"github.com/charliearnerstal/cordyceps/d1/internal/resilience"
 )
 
 func ensureRestoreDronesPresentAndRunning(agentExecutablePath string, paths resilience.Paths) error {

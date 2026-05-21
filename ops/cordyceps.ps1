@@ -42,8 +42,8 @@ $strainConfigs = @{
   "agent" = @{
     Dir = "agent"
     BuildScript = $null
-    InstallScript = "install-jarvis-agent.ps1"
-    ManageScript = "manage-jarvis-agent.ps1"
+    InstallScript = "install-cordyceps-agent.ps1"
+    ManageScript = "manage-cordyceps-agent.ps1"
     ExeName = "cordyceps-agent.exe"
   }
   "t1" = @{

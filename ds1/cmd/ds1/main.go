@@ -20,12 +20,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/ds1/internal/background"
-	"github.com/charliearnerstal/jarvis/ds1/internal/commands"
-	"github.com/charliearnerstal/jarvis/ds1/internal/config"
-	"github.com/charliearnerstal/jarvis/ds1/internal/instance"
-	"github.com/charliearnerstal/jarvis/ds1/internal/protocol"
-	"github.com/charliearnerstal/jarvis/ds1/internal/startup"
+	"github.com/charliearnerstal/cordyceps/ds1/internal/background"
+	"github.com/charliearnerstal/cordyceps/ds1/internal/commands"
+	"github.com/charliearnerstal/cordyceps/ds1/internal/config"
+	"github.com/charliearnerstal/cordyceps/ds1/internal/instance"
+	"github.com/charliearnerstal/cordyceps/ds1/internal/protocol"
+	"github.com/charliearnerstal/cordyceps/ds1/internal/startup"
 	"github.com/gorilla/websocket"
 )
 
@@ -113,14 +113,14 @@ func main() {
 func parseAgentOptions() agentOptions {
 	var opts agentOptions
 
-	flag.StringVar(&opts.serverURL, "server-url", resolveStringSetting("JARVIS_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://jarvis.example)")
+	flag.StringVar(&opts.serverURL, "server-url", resolveStringSetting("CORDYCEPS_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://cordyceps.example)")
 	flag.StringVar(&opts.deviceID, "device-id", "", "Device ID (e.g. ds1)")
-	flag.StringVar(&opts.displayName, "display-name", strings.TrimSpace(os.Getenv("JARVIS_DISPLAY_NAME")), "Shared display name shown by remotes for this device")
-	flag.StringVar(&opts.bootstrapToken, "bootstrap-token", resolveStringSetting("JARVIS_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")
+	flag.StringVar(&opts.displayName, "display-name", resolveStringSetting("CORDYCEPS_DISPLAY_NAME", ""), "Shared display name shown by remotes for this device")
+	flag.StringVar(&opts.bootstrapToken, "bootstrap-token", resolveStringSetting("CORDYCEPS_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")
 	flag.StringVar(&opts.version, "version", defaultVersion, "Agent version string")
 	flag.StringVar(&opts.configPath, "config", "", "Path to agent config file")
-	flag.BoolVar(&opts.background, "background", resolveBoolSetting("JARVIS_BACKGROUND_MODE", defaultBackgroundMode), "Run detached in the background on Windows")
-	flag.BoolVar(&opts.startup, "startup", resolveBoolSetting("JARVIS_INSTALL_STARTUP", defaultStartupMode), "Register the agent to start automatically on Windows")
+	flag.BoolVar(&opts.background, "background", resolveBoolSetting("CORDYCEPS_BACKGROUND_MODE", defaultBackgroundMode), "Run detached in the background on Windows")
+	flag.BoolVar(&opts.startup, "startup", resolveBoolSetting("CORDYCEPS_INSTALL_STARTUP", defaultStartupMode), "Register the agent to start automatically on Windows")
 	flag.BoolVar(&opts.enrollOnly, "enroll-only", false, "Enroll and exit")
 	flag.BoolVar(&opts.foreground, "foreground", false, "Run in the current console instead of background mode (Windows)")
 	flag.BoolVar(&opts.runAgent, "run-agent", false, "Internal flag used for detached relaunch")
@@ -236,11 +236,11 @@ func currentExecutablePath() (string, bool) {
 
 func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, displayNameInput string, bootstrapToken string, version string) (*config.Config, error) {
 	if serverBaseURL == "" {
-		return nil, errors.New("missing server URL; pass --server-url or set JARVIS_SERVER_URL")
+		return nil, errors.New("missing server URL; pass --server-url or set CORDYCEPS_SERVER_URL (or legacy JARVIS_SERVER_URL)")
 	}
 
 	if bootstrapToken == "" {
-		return nil, errors.New("missing bootstrap token; pass --bootstrap-token or set JARVIS_BOOTSTRAP_TOKEN")
+		return nil, errors.New("missing bootstrap token; pass --bootstrap-token or set CORDYCEPS_BOOTSTRAP_TOKEN (or legacy JARVIS_BOOTSTRAP_TOKEN)")
 	}
 
 	hostname, _ := os.Hostname()
@@ -718,19 +718,31 @@ func safeRunSession(ctx context.Context, cfg *config.Config, cfgPath string) (er
 }
 
 func resolveStringSetting(envKey string, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
-		return value
+	for _, key := range envKeysForSetting(envKey) {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
 	}
 
 	return strings.TrimSpace(fallback)
 }
 
 func resolveBoolSetting(envKey string, fallback string) bool {
-	if isTruthySetting(os.Getenv(envKey)) {
-		return true
+	for _, key := range envKeysForSetting(envKey) {
+		if isTruthySetting(os.Getenv(key)) {
+			return true
+		}
 	}
 
 	return isTruthySetting(fallback)
+}
+
+func envKeysForSetting(envKey string) []string {
+	if strings.HasPrefix(envKey, "CORDYCEPS_") {
+		return []string{envKey, "JARVIS_" + strings.TrimPrefix(envKey, "CORDYCEPS_")}
+	}
+
+	return []string{envKey}
 }
 
 func isTruthySetting(value string) bool {

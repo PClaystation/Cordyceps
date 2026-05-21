@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
+	"github.com/charliearnerstal/cordyceps/d1/internal/resilience"
 )
 
 type bundledDroneTrustManifest struct {

@@ -1,4 +1,4 @@
-module github.com/charliearnerstal/jarvis/t1
+module github.com/charliearnerstal/cordyceps/t1
 
 go 1.23
 

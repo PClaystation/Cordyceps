@@ -14,11 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/background"
-	"github.com/charliearnerstal/jarvis/d1/internal/config"
-	"github.com/charliearnerstal/jarvis/d1/internal/instance"
-	"github.com/charliearnerstal/jarvis/d1/internal/resilience"
-	"github.com/charliearnerstal/jarvis/d1/internal/startup"
+	"github.com/charliearnerstal/cordyceps/d1/internal/background"
+	"github.com/charliearnerstal/cordyceps/d1/internal/config"
+	"github.com/charliearnerstal/cordyceps/d1/internal/instance"
+	"github.com/charliearnerstal/cordyceps/d1/internal/resilience"
+	"github.com/charliearnerstal/cordyceps/d1/internal/startup"
 )
 
 var guardianVersion = "0.1.0"

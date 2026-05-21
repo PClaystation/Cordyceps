@@ -20,13 +20,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/e1/internal/background"
-	"github.com/charliearnerstal/jarvis/e1/internal/commands"
-	"github.com/charliearnerstal/jarvis/e1/internal/config"
-	"github.com/charliearnerstal/jarvis/e1/internal/instance"
-	"github.com/charliearnerstal/jarvis/e1/internal/protocol"
-	"github.com/charliearnerstal/jarvis/e1/internal/startup"
-	"github.com/charliearnerstal/jarvis/e1/internal/updater"
+	"github.com/charliearnerstal/cordyceps/e1/internal/background"
+	"github.com/charliearnerstal/cordyceps/e1/internal/commands"
+	"github.com/charliearnerstal/cordyceps/e1/internal/config"
+	"github.com/charliearnerstal/cordyceps/e1/internal/instance"
+	"github.com/charliearnerstal/cordyceps/e1/internal/protocol"
+	"github.com/charliearnerstal/cordyceps/e1/internal/startup"
+	"github.com/charliearnerstal/cordyceps/e1/internal/updater"
 	"github.com/gorilla/websocket"
 )
 

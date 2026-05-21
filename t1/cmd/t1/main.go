@@ -20,13 +20,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/t1/internal/background"
-	"github.com/charliearnerstal/jarvis/t1/internal/commands"
-	"github.com/charliearnerstal/jarvis/t1/internal/config"
-	"github.com/charliearnerstal/jarvis/t1/internal/instance"
-	"github.com/charliearnerstal/jarvis/t1/internal/protocol"
-	"github.com/charliearnerstal/jarvis/t1/internal/startup"
-	"github.com/charliearnerstal/jarvis/t1/internal/updater"
+	"github.com/charliearnerstal/cordyceps/t1/internal/background"
+	"github.com/charliearnerstal/cordyceps/t1/internal/commands"
+	"github.com/charliearnerstal/cordyceps/t1/internal/config"
+	"github.com/charliearnerstal/cordyceps/t1/internal/instance"
+	"github.com/charliearnerstal/cordyceps/t1/internal/protocol"
+	"github.com/charliearnerstal/cordyceps/t1/internal/startup"
+	"github.com/charliearnerstal/cordyceps/t1/internal/updater"
 	"github.com/gorilla/websocket"
 )
 
@@ -82,20 +82,38 @@ func main() {
 		foregroundFlag     bool
 		runAgentFlag       bool
 		printVersionFlag   bool
+		applyUpdateFlag    bool
+		updateParentPID    int
+		updateHelperPath   string
+		updateTargetPath   string
+		updateStagedPath   string
+		updateConfigPath   string
+		updateLaunchConfig string
+		updateVersion      string
+		cleanupPathFlag    string
 	)
 
-	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("JARVIS_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://jarvis.example)")
+	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("CORDYCEPS_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://cordyceps.example)")
 	flag.StringVar(&deviceIDFlag, "device-id", "", "Device ID (e.g. t1)")
-	flag.StringVar(&displayNameFlag, "display-name", strings.TrimSpace(os.Getenv("JARVIS_DISPLAY_NAME")), "Shared display name shown by remotes for this device")
-	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", resolveStringSetting("JARVIS_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")
+	flag.StringVar(&displayNameFlag, "display-name", resolveStringSetting("CORDYCEPS_DISPLAY_NAME", ""), "Shared display name shown by remotes for this device")
+	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", resolveStringSetting("CORDYCEPS_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")
 	flag.StringVar(&versionFlag, "version", defaultVersion, "Agent version string")
 	flag.StringVar(&configPathFlag, "config", "", "Path to agent config file")
-	flag.BoolVar(&backgroundFlag, "background", resolveBoolSetting("JARVIS_BACKGROUND_MODE", defaultBackgroundMode), "Run detached in the background on Windows")
-	flag.BoolVar(&startupFlag, "startup", resolveBoolSetting("JARVIS_INSTALL_STARTUP", defaultStartupMode), "Register the agent to start automatically on Windows")
+	flag.BoolVar(&backgroundFlag, "background", resolveBoolSetting("CORDYCEPS_BACKGROUND_MODE", defaultBackgroundMode), "Run detached in the background on Windows")
+	flag.BoolVar(&startupFlag, "startup", resolveBoolSetting("CORDYCEPS_INSTALL_STARTUP", defaultStartupMode), "Register the agent to start automatically on Windows")
 	flag.BoolVar(&enrollOnlyFlag, "enroll-only", false, "Enroll and exit")
 	flag.BoolVar(&foregroundFlag, "foreground", false, "Run in the current console instead of background mode (Windows)")
 	flag.BoolVar(&runAgentFlag, "run-agent", false, "Internal flag used for detached relaunch")
 	flag.BoolVar(&printVersionFlag, "print-version", false, "Print effective version and exit")
+	flag.BoolVar(&applyUpdateFlag, "apply-update", false, "Internal flag used by the updater helper")
+	flag.IntVar(&updateParentPID, "update-parent-pid", 0, "Internal updater parent process id")
+	flag.StringVar(&updateHelperPath, "update-helper-path", "", "Internal updater helper executable path")
+	flag.StringVar(&updateTargetPath, "update-target", "", "Internal updater target executable path")
+	flag.StringVar(&updateStagedPath, "update-staged", "", "Internal updater staged executable path")
+	flag.StringVar(&updateConfigPath, "update-config", "", "Internal updater current config path")
+	flag.StringVar(&updateLaunchConfig, "update-launch-config", "", "Internal updater launch config path")
+	flag.StringVar(&updateVersion, "update-version", "", "Internal updater version")
+	flag.StringVar(&cleanupPathFlag, "cleanup-path", "", "Internal path cleanup after relaunch")
 	flag.Parse()
 
 	versionFlagExplicit := false
@@ -119,6 +137,28 @@ func main() {
 	}
 
 	log.SetFlags(log.LstdFlags | log.LUTC)
+
+	cleanupPathFlag = strings.TrimSpace(cleanupPathFlag)
+	if cleanupPathFlag != "" {
+		_ = os.Remove(cleanupPathFlag)
+	}
+
+	if applyUpdateFlag {
+		err := updater.ApplyStaged(updater.StagedApplyRequest{
+			ParentPID:        updateParentPID,
+			HelperPath:       strings.TrimSpace(updateHelperPath),
+			TargetPath:       strings.TrimSpace(updateTargetPath),
+			StagedPath:       strings.TrimSpace(updateStagedPath),
+			ConfigPath:       strings.TrimSpace(updateConfigPath),
+			LaunchConfigPath: strings.TrimSpace(updateLaunchConfig),
+			Version:          strings.TrimSpace(updateVersion),
+		})
+		if err != nil {
+			log.Fatalf("apply staged update: %v", err)
+		}
+		return
+	}
+
 	configureLogging(foregroundFlag, enrollOnlyFlag)
 
 	executablePath, execPathErr := os.Executable()
@@ -183,11 +223,11 @@ func main() {
 
 func firstRunEnroll(cfgPath string, serverBaseURL string, deviceIDInput string, displayNameInput string, bootstrapToken string, version string) (*config.Config, error) {
 	if serverBaseURL == "" {
-		return nil, errors.New("missing server URL; pass --server-url or set JARVIS_SERVER_URL")
+		return nil, errors.New("missing server URL; pass --server-url or set CORDYCEPS_SERVER_URL (or legacy JARVIS_SERVER_URL)")
 	}
 
 	if bootstrapToken == "" {
-		return nil, errors.New("missing bootstrap token; pass --bootstrap-token or set JARVIS_BOOTSTRAP_TOKEN")
+		return nil, errors.New("missing bootstrap token; pass --bootstrap-token or set CORDYCEPS_BOOTSTRAP_TOKEN (or legacy JARVIS_BOOTSTRAP_TOKEN)")
 	}
 
 	hostname, _ := os.Hostname()
@@ -714,19 +754,31 @@ func safeRunSession(ctx context.Context, cfg *config.Config, cfgPath string) (er
 }
 
 func resolveStringSetting(envKey string, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
-		return value
+	for _, key := range envKeysForSetting(envKey) {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
 	}
 
 	return strings.TrimSpace(fallback)
 }
 
 func resolveBoolSetting(envKey string, fallback string) bool {
-	if isTruthySetting(os.Getenv(envKey)) {
-		return true
+	for _, key := range envKeysForSetting(envKey) {
+		if isTruthySetting(os.Getenv(key)) {
+			return true
+		}
 	}
 
 	return isTruthySetting(fallback)
+}
+
+func envKeysForSetting(envKey string) []string {
+	if strings.HasPrefix(envKey, "CORDYCEPS_") {
+		return []string{envKey, "JARVIS_" + strings.TrimPrefix(envKey, "CORDYCEPS_")}
+	}
+
+	return []string{envKey}
 }
 
 func isTruthySetting(value string) bool {

@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/d1/internal/config"
-	"github.com/charliearnerstal/jarvis/d1/internal/instance"
-	"github.com/charliearnerstal/jarvis/d1/internal/protocol"
-	"github.com/charliearnerstal/jarvis/d1/internal/startup"
+	"github.com/charliearnerstal/cordyceps/d1/internal/config"
+	"github.com/charliearnerstal/cordyceps/d1/internal/instance"
+	"github.com/charliearnerstal/cordyceps/d1/internal/protocol"
+	"github.com/charliearnerstal/cordyceps/d1/internal/startup"
 	"github.com/gorilla/websocket"
 )
 

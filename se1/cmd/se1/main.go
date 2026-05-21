@@ -20,13 +20,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charliearnerstal/jarvis/se1/internal/background"
-	"github.com/charliearnerstal/jarvis/se1/internal/commands"
-	"github.com/charliearnerstal/jarvis/se1/internal/config"
-	"github.com/charliearnerstal/jarvis/se1/internal/instance"
-	"github.com/charliearnerstal/jarvis/se1/internal/protocol"
-	"github.com/charliearnerstal/jarvis/se1/internal/startup"
-	"github.com/charliearnerstal/jarvis/se1/internal/updater"
+	"github.com/charliearnerstal/cordyceps/se1/internal/background"
+	"github.com/charliearnerstal/cordyceps/se1/internal/commands"
+	"github.com/charliearnerstal/cordyceps/se1/internal/config"
+	"github.com/charliearnerstal/cordyceps/se1/internal/instance"
+	"github.com/charliearnerstal/cordyceps/se1/internal/protocol"
+	"github.com/charliearnerstal/cordyceps/se1/internal/startup"
+	"github.com/charliearnerstal/cordyceps/se1/internal/updater"
 	"github.com/gorilla/websocket"
 )
 
@@ -84,7 +84,7 @@ func main() {
 		printVersionFlag   bool
 	)
 
-	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("JARVIS_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://jarvis.example)")
+	flag.StringVar(&serverURLFlag, "server-url", resolveStringSetting("CORDYCEPS_SERVER_URL", defaultServerURL), "Server base URL (e.g. https://cordyceps.example)")
 	flag.StringVar(&deviceIDFlag, "device-id", "", "Device ID (e.g. se1)")
 	flag.StringVar(&displayNameFlag, "display-name", strings.TrimSpace(os.Getenv("SE1_DISPLAY_NAME")), "Shared display name shown by remotes for this device")
 	flag.StringVar(&bootstrapTokenFlag, "bootstrap-token", resolveStringSetting("SE1_BOOTSTRAP_TOKEN", defaultBootstrapToken), "Bootstrap token for first-run enrollment")
@@ -714,19 +714,31 @@ func safeRunSession(ctx context.Context, cfg *config.Config, cfgPath string) (er
 }
 
 func resolveStringSetting(envKey string, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
-		return value
+	for _, key := range envKeysForSetting(envKey) {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
 	}
 
 	return strings.TrimSpace(fallback)
 }
 
 func resolveBoolSetting(envKey string, fallback string) bool {
-	if isTruthySetting(os.Getenv(envKey)) {
-		return true
+	for _, key := range envKeysForSetting(envKey) {
+		if isTruthySetting(os.Getenv(key)) {
+			return true
+		}
 	}
 
 	return isTruthySetting(fallback)
+}
+
+func envKeysForSetting(envKey string) []string {
+	if strings.HasPrefix(envKey, "CORDYCEPS_") {
+		return []string{envKey, "JARVIS_" + strings.TrimPrefix(envKey, "CORDYCEPS_")}
+	}
+
+	return []string{envKey}
 }
 
 func isTruthySetting(value string) bool {
