@@ -367,6 +367,7 @@ function asHeartbeatMessage(value: Record<string, unknown>): AgentHeartbeatMessa
 
   const deviceId = normalizeRequiredString(value.device_id, 32);
   const sentAt = normalizeRequiredString(value.sent_at, 80);
+  const deviceInfo = normalizeOptionalDeviceInfo(value.device_info);
   if (!deviceId || !sentAt || !isValidDeviceId(deviceId)) {
     return null;
   }
@@ -375,6 +376,7 @@ function asHeartbeatMessage(value: Record<string, unknown>): AgentHeartbeatMessa
     kind: "heartbeat",
     device_id: deviceId,
     sent_at: sentAt,
+    ...(deviceInfo ? { device_info: deviceInfo } : {}),
   };
 }
 
@@ -642,7 +644,15 @@ export async function registerRealtime(server: FastifyInstance, deps: RealtimeDe
           }
 
           deps.registry.markHeartbeat(activeDeviceId);
-          deps.db.touchHeartbeat(activeDeviceId);
+          if (heartbeat.device_info) {
+            deps.registry.updateDeviceInfo(activeDeviceId, heartbeat.device_info);
+            deps.db.markDeviceOnline({
+              deviceId: activeDeviceId,
+              deviceInfo: heartbeat.device_info,
+            });
+          } else {
+            deps.db.touchHeartbeat(activeDeviceId);
+          }
           safeSendJson(socket, makeAckPayload("heartbeat_ack", deps.db.getDroneTargetCount(activeDeviceId)));
           return;
         }

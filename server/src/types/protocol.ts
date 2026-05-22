@@ -142,6 +142,7 @@ export interface AgentHeartbeatMessage {
   kind: "heartbeat";
   device_id: string;
   sent_at: string;
+  device_info?: DeviceInfoRecord;
 }
 
 export interface HeartbeatProcessHelloMessage {

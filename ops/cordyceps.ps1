@@ -41,7 +41,7 @@ $repoRoot = Split-Path -Parent $opsRoot
 $strainConfigs = @{
   "agent" = @{
     Dir = "agent"
-    BuildScript = $null
+    BuildScript = "build-agent-usb.ps1"
     InstallScript = "install-cordyceps-agent.ps1"
     ManageScript = "manage-cordyceps-agent.ps1"
     ExeName = "cordyceps-agent.exe"
@@ -162,9 +162,9 @@ function Resolve-DefaultAgentExePath([hashtable]$strainConfig) {
   $usbExeName = $exeName -replace "\.exe$", "-usb.exe"
 
   $candidates = @(
-    (Join-Path $strainDir $exeName),
     (Join-Path $strainDir (Join-Path "dist" $usbExeName)),
-    (Join-Path $strainDir (Join-Path "dist" $exeName))
+    (Join-Path $strainDir (Join-Path "dist" $exeName)),
+    (Join-Path $strainDir $exeName)
   )
 
   foreach ($candidate in $candidates) {
@@ -241,7 +241,7 @@ switch ($Action) {
   }
   "build-usb" {
     if ($null -eq $strainConfig.BuildScript) {
-      throw "Strain '$resolvedStrain' does not support USB builder script. Use t/e/s/se/a strains."
+      throw "Strain '$resolvedStrain' does not support USB builder script."
     }
 
     $effectiveBootstrapToken = $BootstrapToken

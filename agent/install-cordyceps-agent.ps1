@@ -29,9 +29,9 @@ function Resolve-AgentExePath([string]$requestedPath, [string]$scriptRoot, [stri
     }
   } else {
     $usbName = $defaultExeName -replace "\.exe$", "-usb.exe"
-    $candidates += (Join-Path $scriptRoot $defaultExeName)
     $candidates += (Join-Path $scriptRoot (Join-Path "dist" $usbName))
     $candidates += (Join-Path $scriptRoot (Join-Path "dist" $defaultExeName))
+    $candidates += (Join-Path $scriptRoot $defaultExeName)
     $candidates += (Join-Path $scriptRoot "jarvis-agent.exe")
   }
 

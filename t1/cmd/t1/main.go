@@ -579,10 +579,12 @@ func runSession(ctx context.Context, cfg *config.Config, cfgPath string) error {
 				sendError(nil)
 				return
 			case <-heartbeatTicker.C:
+				deviceInfo := collectDeviceInfo(hostname, username, capabilities)
 				hb := protocol.HeartbeatMessage{
-					Kind:     "heartbeat",
-					DeviceID: cfg.DeviceID,
-					SentAt:   time.Now().UTC().Format(time.RFC3339),
+					Kind:       "heartbeat",
+					DeviceID:   cfg.DeviceID,
+					SentAt:     time.Now().UTC().Format(time.RFC3339),
+					DeviceInfo: deviceInfo,
 				}
 
 				if err := sendJSON(hb); err != nil {

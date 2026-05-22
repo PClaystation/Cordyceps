@@ -67,6 +67,18 @@ test("parser supports type command text payload casing", () => {
   assert.deepEqual(typedParsed.command.args, { text: "Hello + world {test}" });
 });
 
+test("parser supports shell-style open app aliases", () => {
+  const terminalParsed = parseExternalCommand("t1 open terminal");
+  assert.ok(!("code" in terminalParsed));
+  assert.equal(terminalParsed.command.type, "OPEN_APP");
+  assert.deepEqual(terminalParsed.command.args, { app: "terminal" });
+
+  const powershellParsed = parseExternalCommand("t1 open powershell");
+  assert.ok(!("code" in powershellParsed));
+  assert.equal(powershellParsed.command.type, "OPEN_APP");
+  assert.deepEqual(powershellParsed.command.args, { app: "powershell" });
+});
+
 test("parser rejects type command without text", () => {
   const parsed = parseExternalCommand("t1 type");
   assert.ok("code" in parsed);

@@ -1318,6 +1318,20 @@ function getDeviceInfoArray(deviceInfo, key) {
   return Array.isArray(value) ? value : [];
 }
 
+function mergeInspectObjects(...sources) {
+  const merged = {};
+
+  for (const source of sources) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      continue;
+    }
+
+    Object.assign(merged, source);
+  }
+
+  return merged;
+}
+
 function renderNetworkInspectBlock(deviceInfo) {
   const adapters = getDeviceInfoArray(deviceInfo, "network_adapters").filter(
     (entry) => entry && typeof entry === "object" && !Array.isArray(entry),
@@ -1466,10 +1480,10 @@ function renderDeviceInspectView(payload) {
   const aliases = Array.isArray(payload?.aliases) ? payload.aliases : [];
   const queued = Array.isArray(payload?.queued_updates) ? payload.queued_updates : [];
   const logs = Array.isArray(payload?.recent_logs) ? payload.recent_logs : [];
-  const deviceInfo =
-    (device && typeof device.device_info === "object" && !Array.isArray(device.device_info) ? device.device_info : null) ||
-    (realtime && typeof realtime.device_info === "object" && !Array.isArray(realtime.device_info) ? realtime.device_info : null) ||
-    {};
+  const deviceInfo = mergeInspectObjects(
+    device && typeof device.device_info === "object" && !Array.isArray(device.device_info) ? device.device_info : null,
+    realtime && typeof realtime.device_info === "object" && !Array.isArray(realtime.device_info) ? realtime.device_info : null,
+  );
 
   const deviceId = String(device.device_id || inspectedDeviceId || "").trim();
   const normalizedDeviceId = normalizeActionText(deviceId);

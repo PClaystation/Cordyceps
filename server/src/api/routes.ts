@@ -7,7 +7,7 @@ import { EventHub, type RealtimeEvent } from "../events/eventHub";
 import { parseExternalCommand } from "../parser/commandParser";
 import { DeviceRegistry } from "../realtime/deviceRegistry";
 import { CommandRouter, DispatchError } from "../router/commandRouter";
-import type { CommandDispatchResult, DeviceSubprocessRecord, TypedCommand } from "../types/protocol";
+import type { CommandDispatchResult, DeviceInfoRecord, DeviceSubprocessRecord, TypedCommand } from "../types/protocol";
 import { randomToken, sha256Hex } from "../utils/crypto";
 import { makeRequestId } from "../utils/id";
 import { log } from "../utils/logger";
@@ -278,7 +278,21 @@ const LITE_PROFILE_COMMANDS = new Set([
   "MEDIA_PREVIOUS",
   "VOLUME_UP",
   "VOLUME_DOWN",
+  "BRIGHTNESS_UP",
+  "BRIGHTNESS_DOWN",
   "MUTE",
+  "KEY_F1",
+  "KEY_F2",
+  "KEY_F3",
+  "KEY_F4",
+  "KEY_F5",
+  "KEY_F6",
+  "KEY_F7",
+  "KEY_F8",
+  "KEY_F9",
+  "KEY_F10",
+  "KEY_F11",
+  "KEY_F12",
   "LOCK_PC",
   "NOTIFY",
   "CLIPBOARD_SET",
@@ -286,6 +300,28 @@ const LITE_PROFILE_COMMANDS = new Set([
 ]);
 
 const STANDARD_PROFILE_EXTRA_COMMANDS = new Set([
+  "KEY_ENTER",
+  "KEY_ESCAPE",
+  "KEY_TAB",
+  "KEY_SPACE",
+  "KEY_UP",
+  "KEY_DOWN",
+  "KEY_LEFT",
+  "KEY_RIGHT",
+  "KEY_BACKSPACE",
+  "KEY_DELETE",
+  "KEY_HOME",
+  "KEY_END",
+  "KEY_PAGE_UP",
+  "KEY_PAGE_DOWN",
+  "SHORTCUT_COPY",
+  "SHORTCUT_PASTE",
+  "SHORTCUT_CUT",
+  "SHORTCUT_UNDO",
+  "SHORTCUT_REDO",
+  "SHORTCUT_SELECT_ALL",
+  "SHORTCUT_ALT_TAB",
+  "SHORTCUT_ALT_F4",
   "SYSTEM_SLEEP",
   "SYSTEM_SIGN_OUT",
   "SYSTEM_SHUTDOWN",
@@ -869,6 +905,22 @@ function withProfile<T extends { device_id: string; capabilities: string[] }>(de
     ...device,
     profile: resolveDeviceProfile(device.device_id, device.capabilities),
   };
+}
+
+function mergeDeviceInfoRecords(
+  ...sources: Array<DeviceInfoRecord | null | undefined>
+): DeviceInfoRecord | null {
+  const merged: DeviceInfoRecord = {};
+
+  for (const source of sources) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      continue;
+    }
+
+    Object.assign(merged, source);
+  }
+
+  return Object.keys(merged).length > 0 ? merged : null;
 }
 
 function withHeartbeatSubprocess<
@@ -2120,6 +2172,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       updated_at: "",
     };
     const hydratedDevice = withDroneSubprocesses(withHeartbeatSubprocess(device, heartbeatConnected), droneProcesses);
+    const mergedDeviceInfo = mergeDeviceInfoRecords(hydratedDevice.device_info ?? null, connected?.deviceInfo);
 
     const control = deps.db.getDeviceControl(deviceId);
     const aliases = deps.db.listDeviceAppAliases(deviceId);
@@ -2133,6 +2186,7 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       ok: true,
       device: {
         ...withProfile(hydratedDevice),
+        device_info: mergedDeviceInfo,
         quarantine_enabled: control.quarantine_enabled,
         kill_switch_enabled: control.kill_switch_enabled,
         quarantine_reason: control.reason,

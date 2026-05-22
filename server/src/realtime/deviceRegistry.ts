@@ -146,6 +146,15 @@ export class DeviceRegistry {
     entry.lastSeenAt = Date.now();
   }
 
+  public updateDeviceInfo(deviceId: string, deviceInfo?: DeviceInfoRecord): void {
+    const entry = this.devices.get(deviceId);
+    if (!entry || !deviceInfo) {
+      return;
+    }
+
+    entry.deviceInfo = deviceInfo;
+  }
+
   public markHeartbeatProcess(deviceId: string): void {
     const entry = this.heartbeatProcesses.get(deviceId);
     if (!entry) {

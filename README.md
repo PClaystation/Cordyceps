@@ -423,8 +423,11 @@ Default config path on Windows:
 Optional installer script:
 
 ```powershell
+.\build-agent-usb.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN"
 .\install-cordyceps-agent.ps1 -ServerUrl "https://your-server.example" -BootstrapToken "YOUR_BOOTSTRAP_TOKEN" -DeviceId "m1"
 ```
+
+The installer now prefers `dist\cordyceps-agent-usb.exe` so the default path uses the GUI-subsystem build and avoids console-window flashes during background relaunches and updates.
 
 Management:
 

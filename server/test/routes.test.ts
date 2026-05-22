@@ -1060,7 +1060,26 @@ test("device detail endpoint returns control, aliases, queue, and recent logs", 
       deviceInfo: {
         runtime_os: "windows",
         runtime_arch: "amd64",
+      },
+    });
+
+    harness.registry.register({
+      deviceId: "m1",
+      socket: new MockSocket(),
+      version: "1.0.0",
+      hostname: "host",
+      username: "user",
+      capabilities: ["media_control", "locking", "open_app", "notifications", "clipboard_control", "updater"],
+      deviceInfo: {
+        runtime_os: "windows",
+        runtime_arch: "amd64",
         local_ips: ["10.0.0.5"],
+        network_adapters: [
+          {
+            name: "ethernet0",
+            mac: "aa:bb:cc:dd:ee:ff",
+          },
+        ],
       },
     });
 
@@ -1101,7 +1120,10 @@ test("device detail endpoint returns control, aliases, queue, and recent logs", 
     assert.equal(Array.isArray(body.recent_logs), true);
     assert.equal(typeof body.realtime.connected, "boolean");
     assert.equal(body.device.device_info.runtime_os, "windows");
-    assert.equal(body.realtime.device_info, null);
+    assert.deepEqual(body.device.device_info.local_ips, ["10.0.0.5"]);
+    assert.equal(Array.isArray(body.device.device_info.network_adapters), true);
+    assert.equal(body.device.device_info.network_adapters[0].mac, "aa:bb:cc:dd:ee:ff");
+    assert.deepEqual(body.realtime.device_info.local_ips, ["10.0.0.5"]);
   } finally {
     await cleanup();
   }
@@ -2031,6 +2053,141 @@ test("profile policy allows type text for t/e/a and blocks lite profiles", async
     assert.equal(
       router.dispatchedToDevice.some(
         (item) => item.deviceId === "a1" && item.type === "TYPE_TEXT" && item.args.text === "Hello A",
+      ),
+      true,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("profile policy allows implemented lite brightness and function-key commands", async () => {
+  const harness = await createHarness();
+  const { server, router, cleanup } = harness;
+
+  try {
+    addOnlineDevice(harness, {
+      deviceId: "s1",
+      capabilities: [
+        "profile_s",
+        "media_control",
+        "locking",
+        "open_app",
+        "notifications",
+        "clipboard_control",
+        "display_control",
+        "keyboard_control",
+        "updater",
+      ],
+    });
+
+    const brightness = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: authHeaders("owner-token"),
+      payload: {
+        text: "s1 brightness up 25",
+      },
+    });
+
+    assert.equal(brightness.statusCode, 200);
+    assert.equal(brightness.json().parsed_type, "BRIGHTNESS_UP");
+    assert.equal(
+      router.dispatchedToDevice.some(
+        (item) => item.deviceId === "s1" && item.type === "BRIGHTNESS_UP" && item.args.amount === 25,
+      ),
+      true,
+    );
+
+    addOnlineDevice(harness, {
+      deviceId: "se1",
+      capabilities: [
+        "profile_se",
+        "media_control",
+        "locking",
+        "open_app",
+        "notifications",
+        "clipboard_control",
+        "display_control",
+        "keyboard_control",
+        "updater",
+        "emergency_lockdown",
+      ],
+    });
+
+    const functionKey = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: authHeaders("owner-token"),
+      payload: {
+        text: "se1 press f12",
+      },
+    });
+
+    assert.equal(functionKey.statusCode, 200);
+    assert.equal(functionKey.json().parsed_type, "KEY_F12");
+    assert.equal(
+      router.dispatchedToDevice.some((item) => item.deviceId === "se1" && item.type === "KEY_F12"),
+      true,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("profile policy allows implemented standard keyboard shortcuts and shell app launches", async () => {
+  const harness = await createHarness();
+  const { server, router, cleanup } = harness;
+
+  try {
+    addOnlineDevice(harness, {
+      deviceId: "t1",
+      capabilities: [
+        "profile_t",
+        "media_control",
+        "locking",
+        "open_app",
+        "notifications",
+        "clipboard_control",
+        "display_control",
+        "keyboard_control",
+        "advanced_keyboard_control",
+        "power_control",
+        "session_control",
+        "updater",
+      ],
+    });
+
+    const shortcut = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: authHeaders("owner-token"),
+      payload: {
+        text: "t1 alt tab",
+      },
+    });
+
+    assert.equal(shortcut.statusCode, 200);
+    assert.equal(shortcut.json().parsed_type, "SHORTCUT_ALT_TAB");
+    assert.equal(
+      router.dispatchedToDevice.some((item) => item.deviceId === "t1" && item.type === "SHORTCUT_ALT_TAB"),
+      true,
+    );
+
+    const terminal = await server.inject({
+      method: "POST",
+      url: "/api/command",
+      headers: authHeaders("owner-token"),
+      payload: {
+        text: "t1 open terminal",
+      },
+    });
+
+    assert.equal(terminal.statusCode, 200);
+    assert.equal(terminal.json().parsed_type, "OPEN_APP");
+    assert.equal(
+      router.dispatchedToDevice.some(
+        (item) => item.deviceId === "t1" && item.type === "OPEN_APP" && item.args.app === "terminal",
       ),
       true,
     );

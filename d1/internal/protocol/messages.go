@@ -12,9 +12,10 @@ type HelloMessage struct {
 }
 
 type HeartbeatMessage struct {
-	Kind     string `json:"kind"`
-	DeviceID string `json:"device_id"`
-	SentAt   string `json:"sent_at"`
+	Kind       string         `json:"kind"`
+	DeviceID   string         `json:"device_id"`
+	SentAt     string         `json:"sent_at"`
+	DeviceInfo map[string]any `json:"device_info,omitempty"`
 }
 
 type AckMessage struct {
