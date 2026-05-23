@@ -155,13 +155,24 @@
               </section>
 
               <section id="history" class="status-block history-panel">
-                <div class="history-toolbar">
-                  <input id="historyDeviceFilterInput" type="text" placeholder="Filter by device ID (optional)" />
-                  <button id="loadHistoryBtn" type="button">Load History</button>
-                  <button id="moreHistoryBtn" type="button">Load More</button>
-                </div>
-                <p id="historySummary" class="muted">No history loaded.</p>
-                <div id="historyTimeline" class="history-list"></div>
+                <details id="historyDetails" class="history-disclosure">
+                  <summary class="history-disclosure-toggle">
+                    <span class="history-disclosure-copy">
+                      <strong>Recent Command Logs</strong>
+                      <span class="muted">Expand only when you need the activity stream.</span>
+                    </span>
+                    <span id="historyDisclosureLabel" class="history-disclosure-label">Show logs</span>
+                  </summary>
+                  <div class="history-disclosure-body">
+                    <div class="history-toolbar">
+                      <input id="historyDeviceFilterInput" type="text" placeholder="Filter by device ID (optional)" />
+                      <button id="loadHistoryBtn" type="button">Load History</button>
+                      <button id="moreHistoryBtn" type="button">Load More</button>
+                    </div>
+                    <p id="historySummary" class="muted">No history loaded.</p>
+                    <div id="historyTimeline" class="history-list"></div>
+                  </div>
+                </details>
               </section>
             </section>
 

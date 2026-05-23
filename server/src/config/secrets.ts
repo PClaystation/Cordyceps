@@ -48,7 +48,19 @@ export function writeSecretsFile(filePath: string, input: {
   };
 
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), { mode: 0o600 });
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(payload, null, 2), { mode: 0o600 });
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // ignore cleanup failure for incomplete temp files
+    }
+    throw error;
+  }
 
   return payload;
 }

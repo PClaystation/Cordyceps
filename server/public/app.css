@@ -452,6 +452,65 @@ button.primary {
   gap: 12px;
 }
 
+.history-panel {
+  gap: 0;
+}
+
+.history-disclosure {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+  overflow: hidden;
+}
+
+.history-disclosure[open] {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.history-disclosure-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.history-disclosure-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.history-disclosure-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.history-disclosure-copy strong {
+  font-size: 0.92rem;
+}
+
+.history-disclosure-copy .muted {
+  font-size: 0.82rem;
+}
+
+.history-disclosure-label {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 165, 181, 0.26);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cfe1e8;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.history-disclosure-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 14px 14px;
+}
+
 .history-toolbar {
   display: grid;
   gap: 10px;
@@ -744,6 +803,13 @@ button.primary {
   margin-top: 12px;
   display: grid;
   gap: 10px;
+}
+
+#historyTimeline.history-list {
+  max-height: min(36vh, 280px);
+  overflow: auto;
+  padding-right: 4px;
+  align-content: start;
 }
 
 .history-item {

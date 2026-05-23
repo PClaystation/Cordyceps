@@ -34,12 +34,27 @@ export interface ConnectedDroneProcess extends ConnectedHeartbeatProcess {
   role: string;
 }
 
+export interface ClosedRegistryConnections {
+  devices: string[];
+  heartbeatProcesses: string[];
+  droneProcesses: Array<{ deviceId: string; role: string }>;
+}
+
 function closeSocketQuietly(socket: SocketLike, code: number, reason: string): void {
   try {
     socket.close(code, reason);
   } catch {
     // Socket may already be closed or invalid.
   }
+}
+
+function isSocketOpen(socket: SocketLike): boolean {
+  if (typeof socket.readyState !== "number") {
+    return true;
+  }
+
+  const openState = typeof socket.OPEN === "number" ? socket.OPEN : 1;
+  return socket.readyState === openState;
 }
 
 export class DeviceRegistry {
@@ -174,15 +189,53 @@ export class DeviceRegistry {
   }
 
   public get(deviceId: string): ConnectedDevice | null {
-    return this.devices.get(deviceId) ?? null;
+    const entry = this.devices.get(deviceId);
+    if (!entry) {
+      return null;
+    }
+
+    if (!isSocketOpen(entry.socket)) {
+      this.devices.delete(deviceId);
+      return null;
+    }
+
+    return entry;
   }
 
   public getHeartbeatProcess(deviceId: string): ConnectedHeartbeatProcess | null {
-    return this.heartbeatProcesses.get(deviceId) ?? null;
+    const entry = this.heartbeatProcesses.get(deviceId);
+    if (!entry) {
+      return null;
+    }
+
+    if (!isSocketOpen(entry.socket)) {
+      this.heartbeatProcesses.delete(deviceId);
+      return null;
+    }
+
+    return entry;
   }
 
   public getDroneProcesses(deviceId: string): ConnectedDroneProcess[] {
-    const entries = [...(this.droneProcesses.get(deviceId)?.values() ?? [])];
+    const deviceProcesses = this.droneProcesses.get(deviceId);
+    if (!deviceProcesses) {
+      return [];
+    }
+
+    for (const [role, process] of deviceProcesses.entries()) {
+      if (isSocketOpen(process.socket)) {
+        continue;
+      }
+
+      deviceProcesses.delete(role);
+    }
+
+    if (deviceProcesses.size === 0) {
+      this.droneProcesses.delete(deviceId);
+      return [];
+    }
+
+    const entries = [...deviceProcesses.values()];
     entries.sort((left, right) => left.role.localeCompare(right.role, undefined, { numeric: true }));
     return entries;
   }
@@ -215,11 +268,41 @@ export class DeviceRegistry {
   }
 
   public listOnlineDeviceIds(): string[] {
-    return [...this.devices.keys()];
+    return [...this.devices.keys()].filter((deviceId) => this.get(deviceId) !== null);
   }
 
   public countOnline(): number {
-    return this.devices.size;
+    return this.listOnlineDeviceIds().length;
+  }
+
+  public closeAll(code = 1001, reason = "Server shutting down"): ClosedRegistryConnections {
+    const closed: ClosedRegistryConnections = {
+      devices: [],
+      heartbeatProcesses: [],
+      droneProcesses: [],
+    };
+
+    for (const [deviceId, device] of this.devices.entries()) {
+      closeSocketQuietly(device.socket, code, reason);
+      closed.devices.push(deviceId);
+    }
+    this.devices.clear();
+
+    for (const [deviceId, process] of this.heartbeatProcesses.entries()) {
+      closeSocketQuietly(process.socket, code, reason);
+      closed.heartbeatProcesses.push(deviceId);
+    }
+    this.heartbeatProcesses.clear();
+
+    for (const [deviceId, processes] of this.droneProcesses.entries()) {
+      for (const [role, process] of processes.entries()) {
+        closeSocketQuietly(process.socket, code, reason);
+        closed.droneProcesses.push({ deviceId, role });
+      }
+    }
+    this.droneProcesses.clear();
+
+    return closed;
   }
 
   public pruneExpired(ttlMs: number): string[] {

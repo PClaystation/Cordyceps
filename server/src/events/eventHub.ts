@@ -1,3 +1,5 @@
+import { log } from "../utils/logger";
+
 export interface RealtimeEvent {
   type: string;
   ts: string;
@@ -33,12 +35,22 @@ export class EventHub {
       payload,
     };
 
-    for (const listener of this.listeners.values()) {
+    const failedListenerIds: number[] = [];
+
+    for (const [id, listener] of this.listeners.entries()) {
       try {
         listener(event);
-      } catch {
-        // Ignore listener failures to avoid impacting publisher code paths.
+      } catch (error) {
+        failedListenerIds.push(id);
+        log("warn", "Realtime listener failed", {
+          event_type: type,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
+    }
+
+    for (const id of failedListenerIds) {
+      this.listeners.delete(id);
     }
   }
 

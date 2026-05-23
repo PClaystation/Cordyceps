@@ -75,6 +75,8 @@ const groupCards = document.getElementById("groupCards");
 const historyDeviceFilterInput = document.getElementById("historyDeviceFilterInput");
 const loadHistoryBtn = document.getElementById("loadHistoryBtn");
 const moreHistoryBtn = document.getElementById("moreHistoryBtn");
+const historyDetails = document.getElementById("historyDetails");
+const historyDisclosureLabel = document.getElementById("historyDisclosureLabel");
 const historySummary = document.getElementById("historySummary");
 const historyTimeline = document.getElementById("historyTimeline");
 const metricConnectionValue = document.getElementById("metricConnectionValue");
@@ -2142,6 +2144,7 @@ function renderHistoryEntries() {
 
   if (!Array.isArray(commandHistoryEntries) || commandHistoryEntries.length === 0) {
     historySummary.textContent = "No history loaded.";
+    updateHistoryDisclosureLabel();
     updateDashboardMetrics();
     return;
   }
@@ -2179,7 +2182,24 @@ function renderHistoryEntries() {
     historyTimeline.appendChild(article);
   }
 
+  updateHistoryDisclosureLabel();
   updateDashboardMetrics();
+}
+
+function updateHistoryDisclosureLabel() {
+  if (!historyDisclosureLabel) {
+    return;
+  }
+
+  const count = Array.isArray(commandHistoryEntries) ? commandHistoryEntries.length : 0;
+  const label = count === 1 ? "log" : "logs";
+
+  if (historyDetails?.open) {
+    historyDisclosureLabel.textContent = count > 0 ? `Hide ${count} ${label}` : "Hide logs";
+    return;
+  }
+
+  historyDisclosureLabel.textContent = count > 0 ? `Show ${count} ${label}` : "Show logs";
 }
 
 function upsertHistoryEntry(entry) {
@@ -3282,6 +3302,7 @@ function init() {
   renderActionOptions("");
   updateCurrentTargetUI();
   updateDashboardMetrics();
+  updateHistoryDisclosureLabel();
 
   const bootstrapAction = localStorage.getItem(BOOTSTRAP_ACTION_KEY);
   const rememberedAction = localStorage.getItem(LAST_ACTION_KEY);
@@ -3559,6 +3580,12 @@ function init() {
       } catch (error) {
         setResult(error instanceof Error ? error.message : String(error), { isError: true });
       }
+    });
+  }
+
+  if (historyDetails) {
+    historyDetails.addEventListener("toggle", () => {
+      updateHistoryDisclosureLabel();
     });
   }
 

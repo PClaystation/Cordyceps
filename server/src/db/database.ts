@@ -259,6 +259,8 @@ function emptyDroneSubprocesses(): DeviceDroneRecord[] {
 export class Database {
   private readonly db: InstanceType<typeof BetterSqlite3>;
 
+  private closed = false;
+
   public constructor(sqlitePath: string) {
     const dir = path.dirname(sqlitePath);
     fs.mkdirSync(dir, { recursive: true });
@@ -421,6 +423,30 @@ export class Database {
     this.ensureColumn("devices", "heartbeat_hostname", "TEXT");
     this.ensureColumn("devices", "heartbeat_username", "TEXT");
     this.ensureColumn("devices", "drone_target_count", "INTEGER NOT NULL DEFAULT 5");
+    this.resetTransientPresence();
+  }
+
+  private resetTransientPresence(): void {
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `
+          UPDATE devices
+          SET status = 'offline',
+              heartbeat_status = 'offline',
+              heartbeat_connected_at = NULL,
+              updated_at = @updated_at
+          WHERE status <> 'offline'
+             OR heartbeat_status <> 'offline'
+             OR heartbeat_connected_at IS NOT NULL
+        `,
+      )
+      .run({ updated_at: now });
+  }
+
+  public clearTransientPresence(): void {
+    this.resetTransientPresence();
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -1917,6 +1943,11 @@ export class Database {
   }
 
   public close(): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
     this.db.close();
   }
 }

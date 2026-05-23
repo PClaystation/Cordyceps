@@ -141,10 +141,22 @@ function applyCorsHeaders(origin: string, allowlist: string[], reply: { header: 
   return true;
 }
 
-function registerProcessGuards(): void {
+const FORCED_SHUTDOWN_TIMEOUT_MS = 10_000;
+
+function registerProcessGuards(onFatal: (input: {
+  reason: string;
+  error?: unknown;
+  exitCode?: number;
+}) => void): void {
   process.on("unhandledRejection", (reason) => {
     log("error", "Unhandled rejection", {
       reason: reason instanceof Error ? reason.message : String(reason),
+    });
+
+    onFatal({
+      reason: "unhandled rejection",
+      error: reason,
+      exitCode: 1,
     });
   });
 
@@ -153,12 +165,16 @@ function registerProcessGuards(): void {
       error: error.message,
       stack: error.stack ?? null,
     });
+
+    onFatal({
+      reason: "uncaught exception",
+      error,
+      exitCode: 1,
+    });
   });
 }
 
 async function main(): Promise<void> {
-  registerProcessGuards();
-
   const config = loadConfig();
   const db = new Database(config.sqlitePath);
   const registry = new DeviceRegistry();
@@ -178,15 +194,26 @@ async function main(): Promise<void> {
   });
 
   server.setErrorHandler((error, request, reply) => {
+    const statusCode =
+      typeof (error as { statusCode?: unknown }).statusCode === "number"
+        ? Math.max(400, Math.min(599, Math.floor((error as { statusCode: number }).statusCode)))
+        : 500;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
     log("error", "Unhandled server error", {
       path: request.url,
       method: request.method,
-      error: error instanceof Error ? error.message : String(error),
+      status_code: statusCode,
+      error: errorMessage,
     });
 
-    reply.code(500).send({
+    if (reply.sent) {
+      return;
+    }
+
+    reply.code(statusCode).send({
       ok: false,
-      message: "Internal server error",
+      message: statusCode >= 500 ? "Internal server error" : errorMessage,
     });
   });
 
@@ -233,7 +260,7 @@ async function main(): Promise<void> {
     updateRequireSignature: config.updateRequireSignature,
   });
 
-  const heartbeatSweepTimer = setInterval(() => {
+  let heartbeatSweepTimer: NodeJS.Timeout | null = setInterval(() => {
     try {
       const timedOutDevices = registry.pruneExpired(config.heartbeatTtlMs);
       for (const deviceId of timedOutDevices) {
@@ -279,10 +306,94 @@ async function main(): Promise<void> {
 
   heartbeatSweepTimer.unref?.();
 
+  let shuttingDown: Promise<void> | null = null;
+  let exitCode = 0;
+  const shutdown = async (input?: {
+    exitCode?: number;
+    reason?: string;
+    error?: unknown;
+  }): Promise<void> => {
+    exitCode = Math.max(exitCode, input?.exitCode ?? 0);
+
+    if (shuttingDown) {
+      return shuttingDown;
+    }
+
+    shuttingDown = (async () => {
+      const forceExitTimer = setTimeout(() => {
+        log("error", "Forced shutdown timeout exceeded", {
+          exit_code: exitCode,
+          reason: input?.reason ?? "shutdown",
+        });
+        process.exit(exitCode || 1);
+      }, FORCED_SHUTDOWN_TIMEOUT_MS);
+      forceExitTimer.unref?.();
+
+      if (heartbeatSweepTimer) {
+        clearInterval(heartbeatSweepTimer);
+        heartbeatSweepTimer = null;
+      }
+
+      log("info", "Shutting down server", {
+        reason: input?.reason ?? "signal",
+        fatal: exitCode > 0,
+        error: input?.error instanceof Error ? input.error.message : input?.error ? String(input.error) : null,
+      });
+
+      try {
+        router.clearAllPending("server shutdown");
+      } catch {
+        // ignore pending cleanup errors during shutdown
+      }
+
+      try {
+        const closedConnections = registry.closeAll(1001, "Server shutting down");
+        db.clearTransientPresence();
+        log("info", "Closed live realtime connections", {
+          devices: closedConnections.devices.length,
+          heartbeat_processes: closedConnections.heartbeatProcesses.length,
+          drone_processes: closedConnections.droneProcesses.length,
+        });
+      } catch (error) {
+        log("warn", "Realtime connection cleanup failed during shutdown", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      try {
+        await server.close();
+      } catch (error) {
+        log("warn", "Server close failed during shutdown", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      try {
+        db.close();
+      } catch (error) {
+        log("warn", "Database close failed during shutdown", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      clearTimeout(forceExitTimer);
+      process.exit(exitCode);
+    })();
+
+    return shuttingDown;
+  };
+
+  registerProcessGuards((input) => {
+    void shutdown(input);
+  });
+
   try {
     await server.listen({ host: config.host, port: config.port });
   } catch (error) {
-    clearInterval(heartbeatSweepTimer);
+    if (heartbeatSweepTimer) {
+      clearInterval(heartbeatSweepTimer);
+      heartbeatSweepTimer = null;
+    }
     throw error;
   }
 
@@ -340,47 +451,12 @@ async function main(): Promise<void> {
     });
   }
 
-  let shuttingDown = false;
-  const shutdown = async (): Promise<void> => {
-    if (shuttingDown) {
-      return;
-    }
-    shuttingDown = true;
-
-    clearInterval(heartbeatSweepTimer);
-    log("info", "Shutting down server");
-
-    try {
-      router.clearAllPending("server shutdown");
-    } catch {
-      // ignore pending cleanup errors during shutdown
-    }
-
-    try {
-      await server.close();
-    } catch (error) {
-      log("warn", "Server close failed during shutdown", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    try {
-      db.close();
-    } catch (error) {
-      log("warn", "Database close failed during shutdown", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    process.exit(0);
-  };
-
   process.on("SIGINT", () => {
-    void shutdown();
+    void shutdown({ reason: "SIGINT" });
   });
 
   process.on("SIGTERM", () => {
-    void shutdown();
+    void shutdown({ reason: "SIGTERM" });
   });
 }
 

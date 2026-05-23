@@ -1046,6 +1046,28 @@ test("devices endpoint includes derived agent profile", async () => {
   }
 });
 
+test("devices endpoint reports offline when database status is stale", async () => {
+  const harness = await createHarness();
+  const { server, registry, cleanup } = harness;
+
+  try {
+    registry.disconnect("m1");
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/devices",
+      headers: authHeaders("owner-token"),
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    const m1 = (body.devices as Array<{ device_id: string; status: string }>).find((device) => device.device_id === "m1");
+    assert.equal(m1?.status, "offline");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("device detail endpoint returns control, aliases, queue, and recent logs", async () => {
   const harness = await createHarness();
   const { server, cleanup } = harness;
@@ -1124,6 +1146,28 @@ test("device detail endpoint returns control, aliases, queue, and recent logs", 
     assert.equal(Array.isArray(body.device.device_info.network_adapters), true);
     assert.equal(body.device.device_info.network_adapters[0].mac, "aa:bb:cc:dd:ee:ff");
     assert.deepEqual(body.realtime.device_info.local_ips, ["10.0.0.5"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("device detail endpoint reports offline when live registry is disconnected", async () => {
+  const harness = await createHarness();
+  const { server, registry, cleanup } = harness;
+
+  try {
+    registry.disconnect("m1");
+
+    const detail = await server.inject({
+      method: "GET",
+      url: "/api/devices/m1",
+      headers: authHeaders("owner-token"),
+    });
+
+    assert.equal(detail.statusCode, 200);
+    const body = detail.json();
+    assert.equal(body.device.status, "offline");
+    assert.equal(body.realtime.connected, false);
   } finally {
     await cleanup();
   }

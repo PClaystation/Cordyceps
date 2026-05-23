@@ -170,7 +170,19 @@ function tryReadSecretsFile(filePath: string): StoredSecretsFile | null {
 function writeSecretsFile(filePath: string, payload: StoredSecretsFile): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const body = JSON.stringify(payload, null, 2);
-  fs.writeFileSync(filePath, body, { mode: 0o600 });
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+
+  try {
+    fs.writeFileSync(tempPath, body, { mode: 0o600 });
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // ignore cleanup failure for incomplete temp files
+    }
+    throw error;
+  }
 }
 
 interface ResolvedSecrets {

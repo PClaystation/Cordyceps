@@ -907,6 +907,44 @@ function withProfile<T extends { device_id: string; capabilities: string[] }>(de
   };
 }
 
+function withLiveDeviceState<
+  T extends {
+    status: "online" | "offline";
+    last_seen: string;
+    version: string | null;
+    hostname: string | null;
+    username: string | null;
+    capabilities: string[];
+    device_info?: DeviceInfoRecord | null;
+  },
+>(
+  device: T,
+  connected: ReturnType<DeviceRegistry["get"]>,
+): T {
+  const mergedDeviceInfo =
+    connected?.deviceInfo || device.device_info
+      ? mergeDeviceInfoRecords(device.device_info ?? null, connected?.deviceInfo ?? null)
+      : null;
+
+  if (!connected) {
+    return {
+      ...device,
+      status: "offline",
+    };
+  }
+
+  return {
+    ...device,
+    status: "online",
+    last_seen: new Date(connected.lastSeenAt).toISOString(),
+    version: connected.version,
+    hostname: connected.hostname,
+    username: connected.username,
+    capabilities: connected.capabilities,
+    device_info: mergedDeviceInfo,
+  };
+}
+
 function mergeDeviceInfoRecords(
   ...sources: Array<DeviceInfoRecord | null | undefined>
 ): DeviceInfoRecord | null {
@@ -1595,12 +1633,17 @@ function normalizeHistoryLimit(value: unknown): number {
   return Math.min(parsed, MAX_HISTORY_LIMIT);
 }
 
-function writeSseEvent(reply: FastifyReply, event: RealtimeEvent): void {
+function writeSseEvent(reply: FastifyReply, event: RealtimeEvent): boolean {
+  if (reply.raw.destroyed || reply.raw.writableEnded) {
+    return false;
+  }
+
   try {
     reply.raw.write(`event: ${event.type}\n`);
     reply.raw.write(`data: ${JSON.stringify({ ts: event.ts, ...event.payload })}\n\n`);
+    return true;
   } catch {
-    // noop: closed sockets naturally fail writes.
+    return false;
   }
 }
 
@@ -2059,35 +2102,67 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       "X-Accel-Buffering": "no",
     });
 
-    writeSseEvent(reply, {
+    let cleanedUp = false;
+    let unsubscribe = () => {};
+    let pingTimer: NodeJS.Timeout | null = null;
+
+    const onSocketDone = (): void => {
+      cleanup();
+    };
+
+    const cleanup = (): void => {
+      if (cleanedUp) {
+        return;
+      }
+
+      cleanedUp = true;
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
+      unsubscribe();
+      request.raw.removeListener("close", onSocketDone);
+      request.raw.removeListener("end", onSocketDone);
+      request.raw.removeListener("error", onSocketDone);
+    };
+
+    if (!writeSseEvent(reply, {
       type: "ready",
       ts: new Date().toISOString(),
       payload: {
         subject: auth.subject,
       },
+    })) {
+      cleanup();
+      reply.raw.end();
+      return;
+    }
+
+    unsubscribe = deps.eventHub.subscribe((event) => {
+      if (writeSseEvent(reply, event)) {
+        return;
+      }
+
+      cleanup();
+      throw new Error("SSE stream is no longer writable");
     });
 
-    const unsubscribe = deps.eventHub.subscribe((event) => {
-      writeSseEvent(reply, event);
-    });
-
-    const pingTimer = setInterval(() => {
-      writeSseEvent(reply, {
+    pingTimer = setInterval(() => {
+      if (writeSseEvent(reply, {
         type: "ping",
         ts: new Date().toISOString(),
         payload: {},
-      });
+      })) {
+        return;
+      }
+
+      cleanup();
     }, SSE_PING_INTERVAL_MS);
     pingTimer.unref?.();
 
-    const cleanup = (): void => {
-      clearInterval(pingTimer);
-      unsubscribe();
-    };
-
-    request.raw.on("close", cleanup);
-    request.raw.on("end", cleanup);
-    request.raw.on("error", cleanup);
+    request.raw.once("close", onSocketDone);
+    request.raw.once("end", onSocketDone);
+    request.raw.once("error", onSocketDone);
   });
 
   server.get("/api/devices", async (request, reply) => {
@@ -2097,8 +2172,9 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
 
     const devices = deps.db.listDevices().map((device) => {
       const control = deps.db.getDeviceControl(device.device_id);
+      const connected = deps.registry.get(device.device_id);
       const hydrated = withDroneSubprocesses(
-        withHeartbeatSubprocess(device, deps.registry.getHeartbeatProcess(device.device_id)),
+        withHeartbeatSubprocess(withLiveDeviceState(device, connected), deps.registry.getHeartbeatProcess(device.device_id)),
         deps.registry.getDroneProcesses(device.device_id),
       );
       return {
@@ -2171,8 +2247,11 @@ export async function registerApiRoutes(server: FastifyInstance, deps: ApiDeps):
       created_at: "",
       updated_at: "",
     };
-    const hydratedDevice = withDroneSubprocesses(withHeartbeatSubprocess(device, heartbeatConnected), droneProcesses);
-    const mergedDeviceInfo = mergeDeviceInfoRecords(hydratedDevice.device_info ?? null, connected?.deviceInfo);
+    const hydratedDevice = withDroneSubprocesses(
+      withHeartbeatSubprocess(withLiveDeviceState(device, connected), heartbeatConnected),
+      droneProcesses,
+    );
+    const mergedDeviceInfo = mergeDeviceInfoRecords(hydratedDevice.device_info ?? null, connected?.deviceInfo ?? null);
 
     const control = deps.db.getDeviceControl(deviceId);
     const aliases = deps.db.listDeviceAppAliases(deviceId);
